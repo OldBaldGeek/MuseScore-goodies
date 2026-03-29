@@ -16,7 +16,7 @@ When using Capo-stacker, MuseScore's capo setting should be 0, or MuseScore will
 
 ## Installation
 
-Current and previous versions are available for download from [website](https://github.com/OldBaldGeek/MuseScore-goodies/tree/main/capo-stacker).
+Current and previous versions are available for download from [website](https://github.com/OldBaldGeek/MuseScore-goodies/capo-stacker).
 
 Unpack the zip file. Move the `capo-stacker` folder to MuseScore's plugins folder. This is configurable at `Preferences:General:Folders`. The default directories are:
 - `Windows: C:\Users\%USERNAME%\Documents\MuseScore4\Plugins`
@@ -27,7 +27,7 @@ Click ``Home: Plugins or Plugins: Manage plugins...`` and `Enable` the plugin.
 
 To update to a new version, simply replace the `capo-stacker` folder with the new one (you may need to restart Musescore).
 
-## OperatION
+## Operation
 
 The dialog has several controls:
 
@@ -38,7 +38,7 @@ The dialog has several controls:
 
 - `Capo label X offset`: this specifies an offset from the first chord at which to insert staff-text showing `Capo: x` The default value of -12 will usually be fine.
 
-- `Capo label Y offset`" this specifies an offset from the original chords at which to insert staff-text and the capo chords." The default value of -4.8 will usually be fine. If this value is less negative, the capo chords may show at different heights.
+- `Capo label Y offset`" this specifies an offset from the original chords at which to insert staff-text and the capo chords. The default value of -5 will usually be fine. If this value is less negative, the capo chords may show at different heights.
 
 - `Apply`: Click this to delete any existing capo chords, and insert new ones according to the value of `Capo fret`
 
@@ -48,7 +48,7 @@ The dialog has several controls:
 
 ## Notes and Limitations
 
-Because of enharmonic notes and chord spellings, determining the correct translation of a chord isn't as easy as you might think: is that a C-sharp or a D-flat?
-This version of Capo-stacker punts: it has a table filled in with what MuseScore's capo chords show. In limited tests thus far, it seems to cope with the key signatures, chords, and guitarists that I encounter: no more than four sharps or flats in the original key, and guitarists who want to capo into C, G, D, or A.
+Because of enharmonic note and chord spellings, determining the correct translation of a chord isn't as easy as you might think: is that a C-sharp or a D-flat?
+This version of Capo-stacker punts: it has a table filled in with information cribbed from MuseScore's capo chords for a test file. In limited tests thus far, it seems to cope with the key signatures, chords, and guitarists that I encounter: no more than four sharps or flats in the original key, and guitarists who want to capo into C, G, D, or A.
 
 I have been thinking about other ways to do the translation. If you know the secret, please let me know.
