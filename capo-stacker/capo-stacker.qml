@@ -25,6 +25,7 @@ MuseScore {
     version: "1.0.0"
     title: "Capo-stacker"
     description: "Insert capo chords ABOVE main chords"
+    categoryCode: "composing-arranging-tools"
     pluginType: "dialog"
     thumbnailName: "capo-stacker.png"
 
@@ -288,7 +289,13 @@ MuseScore {
                     { 'text': "2", 'capo': 2 },
                     { 'text': "3", 'capo': 3 },
                     { 'text': "4", 'capo': 4 },
-                    { 'text': "5", 'capo': 5 }
+                    { 'text': "5", 'capo': 5 },
+                    { 'text': "6", 'capo': 6 },
+                    { 'text': "7", 'capo': 7 },
+                    { 'text': "8", 'capo': 8 },
+                    { 'text': "9", 'capo': 9 },
+                    { 'text': "10",'capo': 10 },
+                    { 'text': "11",'capo': 11 }
                 ]
                 currentIndex: 0
                 onActivated: function(index, value) {
@@ -315,7 +322,7 @@ MuseScore {
             }
             TextField {
                 id: offsetY
-                text: "-4.8"  // Trying for same level as the first chord
+                text: "-5"  // Trying for same level as the first chord
                 validator: DoubleValidator {
                     bottom: -999.0
                     top: 999.0
