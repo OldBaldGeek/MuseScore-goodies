@@ -16,7 +16,7 @@ When using Capo-stacker, MuseScore's capo setting should be 0, or MuseScore will
 
 ## Installation
 
-Current and previous versions are available for download from [website](https://github.com/OldBaldGeek/MuseScore-goodies/capo-stacker).
+Current and previous versions are available for download from [https://github.com/OldBaldGeek/MuseScore-goodies/tree/main/capo-stacker](https://github.com/OldBaldGeek/MuseScore-goodies/tree/main/capo-stacker).
 
 Unpack the zip file. Move the `capo-stacker` folder to MuseScore's plugins folder. This is configurable at `Preferences:General:Folders`. The default directories are:
 - `Windows: C:\Users\%USERNAME%\Documents\MuseScore4\Plugins`
