@@ -40,15 +40,18 @@ The dialog has several controls:
 
 - `Capo label Y offset`" this specifies an offset from the original chords at which to insert staff-text and the capo chords. The default value of -5 will usually be fine. If this value is less negative, the capo chords may show at different heights.
 
-- `Apply`: Click this to delete any existing capo chords, and insert new ones according to the value of `Capo fret`
+- `Apply`: Click this to delete any existing capo chords, and insert new ones according to the value of `Capo fret.`
 
 - `Close`: Click this to close the dialog.
 
-- `Show Info`: this is a debug item that shows the positions of the chords. It may prove useful in adjusting the capo offset values.
+- `Show Info`: this is a debug item that shows the positions of the chords. It may prove useful in adjusting the capo offset values, since variations in Y position are fairly obvious.
 
 ## Notes and Limitations
 
 Because of enharmonic note and chord spellings, determining the correct translation of a chord isn't as easy as you might think: is that a C-sharp or a D-flat?
-This version of Capo-stacker punts: it has a table filled in with information cribbed from MuseScore's capo chords for a test file. In limited tests thus far, it seems to cope with the key signatures, chords, and guitarists that I encounter: no more than four sharps or flats in the original key, and guitarists who want to capo into C, G, D, or A.
 
-I have been thinking about other ways to do the translation. If you know the secret, please let me know.
+This version of Capo-stacker punts: it has a table filled in with information cribbed from MuseScore's capo chords for a test file. In my usage thus far, it seems to cope with the key signatures, chords, and guitarists that I encounter: no more than four sharps or flats in the original key, and guitarists who want to capo into C, G, D, or A.
+
+If the staff with chord symbols has multiple voices, MuseScore 4.6.5 (at least) may associate some chord symbol with other than voice 1, at least as read by a plugin using a cursor. In some cases, the same chord symbol may be seen by cursors on more than one voice.
+
+Capo-stacker does its best to find all "real" chord symbols and ignore the duplicates, but there may be cases that I have not seen that are not handled properly.

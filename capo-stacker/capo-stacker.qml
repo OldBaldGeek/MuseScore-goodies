@@ -18,23 +18,26 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-import MuseScore 3.0
+import MuseScore
 import Muse.UiComponents
 
+// For debug dump until console is fixed
+import FileIO
+
 MuseScore {
-    version: "1.0.0"
+    version: "2.0.0"
     title: "Capo-stacker"
     description: "Insert capo chords ABOVE main chords"
     categoryCode: "composing-arranging-tools"
     pluginType: "dialog"
     thumbnailName: "capo-stacker.png"
 
-    width:  300
-    height: 200
+    width:  360
+    height: 240
 
     onRun: {
         if (!curScore) {
-            error("No score open.\nThis plugin requires an open score to run.\n")
+            message("Error", "No score open.\nThis plugin requires an open score to run.\n")
             quit()
         }
     }
@@ -43,58 +46,84 @@ MuseScore {
     {
         var trackNumber = getTrack();
         var capo = getCapo();
+        curScore.startCmd()
 
         // Delete any existing capo or manually-inserted stacked chords
         deleteExtraChords(trackNumber);
 
         if (capo != 0) {
-            // Search the current score for the chord symbols in the selected track.
-            var cursor = curScore.newCursor();
-            cursor.track = trackNumber;
-            cursor.rewind(Cursor.SCORE_START);
-            curScore.startCmd()
+            var str = "Inserting capo chords on staff " + (trackNumber/4 + 1) + "\n";
 
-            var tick = -1;
-            while (cursor.segment) {
-                var annotations = cursor.segment.annotations;
-                for (var a in annotations) {
-                    var annotation = annotations[a];
-                    if (annotation.name == "Harmony") {
-                        if (cursor.tick != tick) {
-                            // new base chord
-                            var tokens = parseChordSymbol(annotation.text);
-                            var capoChord = annotation.clone();
-                            capoChord.text = "(" + capoed(tokens[0], capo, "") +
-                                             tokens[1] + 
-                                             capoed( tokens[2], capo, "/") + ")";
-                            capoChord.play = false;
+            // Build a dictionary indexed by tick containing chords
+            var allTheChords = ({});
+            var showedCapoText = false;
 
-                            // If we use the default, the capo chords end up
-                            // at different heights (-4.7 and a bit) depending 
-                            // on the main chord below them.
-                            // Set an explicit value to smooth them out and
-                            // line up the "Capo:X" text.
-                            capoChord.offsetY = Number(offsetY.text);
-                            cursor.add(capoChord);
+            // Find chords on all voices of the specified track
+            for (var voice = 0; voice < 4; voice++) {
+                var cursor = curScore.newCursor();
+                cursor.track = trackNumber + voice;
+                cursor.rewind(Cursor.SCORE_START);
 
-                            if (tick < 0) {
-                                // First chord symbol. Insert Capo text
-                                // Ideally, want this just to the left of
-                                // the first capo chord.
-                                var capoText = newElement(Element.STAFF_TEXT);
-                                capoText.text = "Capo: " + capo;
-                                cursor.add(capoText);
-                                capoText.offsetX = Number(offsetX.text);
-                                capoText.offsetY = Number(offsetY.text);
+                while (cursor.segment) {
+                    var annotations = cursor.segment.annotations;
+                    for (var a in annotations) {
+                        var annotation = annotations[a];
+                        if ((annotation.name == "Harmony") && (annotation.text[0] != "(")) {
+                            if (cursor.tick in allTheChords) {
+                                if (allTheChords[cursor.tick] === annotation.text) {
+                                    str += showWhere(cursor) + " Duplicate " + annotation.text + "\n";
+                                }
+                                else {
+                                    str += "CONFLICTING CHORDS " +
+                                           showWhere(cursor) + " Chord " + annotation.text +
+                                           " vs previous " + allTheChords[cursor.tick] + "\n";
+                                }
                             }
-                            tick = cursor.tick;
+                            else {
+                                // New chord
+                                allTheChords[cursor.tick] = annotation.text;
+
+                                // Add a capoed version of the chord to this voice
+                                var tokens = parseChordSymbol(annotation.text);
+                                var capoChord = annotation.clone();
+                                capoChord.text = "(" + capoed(tokens[0], capo, "") +
+                                                 tokens[1] +
+                                                 capoed( tokens[2], capo, "/") + ")";
+                                capoChord.play = false;
+
+                                // If we use the default, the capo chords end up
+                                // at different heights (-4.7 and a bit) depending
+                                // on the main chord below them.
+                                // Set an explicit value to smooth them out and
+                                // line up the "Capo:X" text.
+                                capoChord.offsetY = Number(offsetY.text);
+                                cursor.add(capoChord);
+
+                                str += showWhere(cursor) + " Chord " + annotation.text +
+                                       " capoed to " + capoChord.text + "\n";
+
+                                if (!showedCapoText) {
+                                    // First chord symbol. Insert Capo text
+                                    // Ideally, want this just to the left of
+                                    // the first capo chord.
+                                    var capoText = newElement(Element.STAFF_TEXT);
+                                    capoText.text = "Capo: " + capo;
+                                    cursor.add(capoText);
+                                    capoText.offsetX = Number(offsetX.text);
+                                    capoText.offsetY = Number(offsetY.text);
+                                    showedCapoText = true;
+                                }
+                            }
                         }
                     }
+                    cursor.next();
                 }
-                cursor.next();
             }
-            curScore.endCmd()
+
+            logFile.write(str)
+            resultText.placeholderText = "Capo actions may be found in\n" + logFile.source
         }
+        curScore.endCmd()
     }
 
     // Return the capoed equivalent of a note
@@ -104,7 +133,7 @@ MuseScore {
         // Values set to match MuseScore 4.6.5 capo chords for chords without /bass.
         // Adding /bass causes Musescore to give different results in some cases
         // for the chord letter, the bass letter, or both.
-        // Works fine for G7/F, deviates for things like Cb/G#
+        // Works fine for G7/F, deviates for exotica like Cb/G#
         var capoMapper = {
          //  note     1     2     3     4     5     6     7     8     9    10    11
             "Cb" : [ "Bb", "A",  "Ab", "G",  "Gb", "F",  "E",  "Eb", "D",  "Db", "C"  ],
@@ -142,78 +171,76 @@ MuseScore {
         return "";
     }
 
-    // Delete all but the first chord at a given tick position
+    // Delete all but the first chord at a given tick position and voice
     function deleteExtraChords(a_trackNumber)
     {
-        var cursor = curScore.newCursor();
-        cursor.track = a_trackNumber;
-        cursor.rewind(Cursor.SCORE_START);
-        curScore.startCmd()
+        for (var voice = 0; voice < 4; voice++) {
+            var cursor = curScore.newCursor();
+            cursor.track = a_trackNumber + voice;
+            cursor.rewind(Cursor.SCORE_START);
 
-        var tick = -1;
-        while (cursor.segment) {
-            var annotations = cursor.segment.annotations;
-            // Careful looping, as we will be deleting elements
-            for (let a=0; a < annotations.length; a++) {
-                var annotation = annotations[a];
-                if (annotation.name == "Harmony") {
-                    if (cursor.tick != tick) {
-                        // new chord position - leave it alone
-                        tick = cursor.tick;
+            var tick = -1;
+            while (cursor.segment) {
+                var annotations = cursor.segment.annotations;
+                // Careful looping, as we will be deleting elements
+                for (let a=0; a < annotations.length; a++) {
+                    var annotation = annotations[a];
+                    if (annotation.name == "Harmony") {
+                        if (cursor.tick != tick) {
+                            // new chord position - leave it alone
+                            tick = cursor.tick;
+                        }
+                        else {
+                            // Extra chord, typically from a previous capo run
+                            removeElement(annotation);
+                            a--;    // back up the index to account for deletiong
+                        }
                     }
-                    else {
-                        // Extra chord, typically from a previous capo run
-                        removeElement(annotation);
-                        a--;    // back up the index to account for deletiong
+                    else if ((annotation.name == "StaffText") &&
+                              (annotation.text.indexOf("Capo:") == 0))
+                    {
+                         // Capo text, presumably from previous capo run
+                         removeElement(annotation);
+                         a--;    // back up the index to account for deletiong
                     }
                 }
-                else if ((annotation.name == "StaffText") &&
-                          (annotation.text.indexOf("Capo:") == 0))
-                {
-                     // Capo text, presumably from previous capo run
-                     removeElement(annotation);
-                     a--;    // back up the index to account for deletiong
-                }
+                cursor.next();
             }
-            cursor.next();
         }
-        curScore.endCmd();
     }
 
     // Show info about of all chords
     function showChordInfo(a_trackNumber)
     {
-        curScore.startCmd()
+        var str = "Showing chord data for staff " + (a_trackNumber/4 + 1) + "\n";
 
-        var str = "";
-        var cursor = curScore.newCursor();
-        cursor.track = a_trackNumber;
-        cursor.rewind(Cursor.SCORE_START);
+        for (var voice = 0; voice < 4; voice++) {
+            var cursor = curScore.newCursor();
+            cursor.track = a_trackNumber + voice;
+            cursor.rewind(Cursor.SCORE_START);
 
-        while (cursor.segment) {
-            var annotations = cursor.segment.annotations;
-            for (let a=0; a < annotations.length; a++) {
-                var annotation = annotations[a];
-                if ((annotation.name == "Harmony") ||
-                    (annotation.name == "StaffText"))
-                {
-                    str += cursor.tick + ": " +
-                           annotation.name + " " +
-                           annotation.text +
-                           "\t pX=" + annotation.posX +
-                           " pY=" + annotation.posY +
-                           " oX=" + annotation.offsetX +
-                           " oY=" + annotation.offsetY +
-                           "\n";
-
-                    // Goose it
-                    annotation.pY += 0.1
+            while (cursor.segment) {
+                var annotations = cursor.segment.annotations;
+                for (let a=0; a < annotations.length; a++) {
+                    var annotation = annotations[a];
+                    if ((annotation.name == "Harmony") ||
+                        (annotation.name == "StaffText"))
+                    {
+                        // More than you want to know
+                        // str += dumpObject(annotation, "");
+                        str += showWhere(cursor) +
+                               " " + annotation.name +
+                               " " + annotation.text +
+                               "\t pX=" + annotation.posX +
+                               " pY="  + annotation.posY +
+                               "\n";
+                    }
                 }
+                cursor.next();
             }
-            cursor.next();
         }
-        curScore.endCmd()
-        error(str);
+        logFile.write(str)
+        resultText.placeholderText = "Chord information may be found in\n" + logFile.source
     }
 
     // Given a string representing a chord (e.g. "C#maj7b9/G#"), return
@@ -245,25 +272,28 @@ MuseScore {
         return [ chordNote, tokens[4] ? tokens[4] : "", bassNote ];
     }
 
-    function error(errorMessage) {
-        errorDialog.text = qsTr(errorMessage)
-        errorDialog.visible = false
-        errorDialog.open()
+    function message(a_title, a_message) {
+        messageDialog.title = qsTranslate("PrefsDialogBase", a_title)
+        messageDialog.text = qsTr(a_message)
+        messageDialog.visible = false
+        messageDialog.open()
     }
 
     Item {
         anchors.fill: parent
 
         GridLayout {
-            columns: 2
+            columns: 3
             anchors.fill: parent
-            anchors.margins: 10
+            anchors.margins: 20
+            uniformCellWidths: true
 
             Label {
                 text: "Staff with chords"
             }
             StyledDropdown {
                 id: chordTrack
+                Layout.columnSpan: 2
                 model: [
                     { 'text': "1", 'track': 0 },
                     { 'text': "2", 'track': 4 },
@@ -283,6 +313,7 @@ MuseScore {
             }
             StyledDropdown {
                 id: chordCapo
+                Layout.columnSpan: 2
                 model: [
                     { 'text': "none (remove)", 'capo': 0 },
                     { 'text': "1", 'capo': 1 },
@@ -304,10 +335,11 @@ MuseScore {
             }
             
             Label {
-                text: "Capo label X offset"
+                text: "Capo text X offset"
             }
             TextField {
                 id: offsetX
+                Layout.columnSpan: 2
                 text: "-12"  // Trying for just left of the first chord
                 validator: DoubleValidator {
                     bottom: -999.0
@@ -318,10 +350,11 @@ MuseScore {
             }
 
             Label {
-                text: "Capo label Y offset"
+                text: "Capo text Y offset"
             }
             TextField {
                 id: offsetY
+                Layout.columnSpan: 2
                 text: "-5"  // Trying for same level as the first chord
                 validator: DoubleValidator {
                     bottom: -999.0
@@ -336,7 +369,14 @@ MuseScore {
                 text: qsTranslate("PrefsDialogBase", "Apply")
                 onClicked: {
                     applyCapo()
-                    // quit()
+                }
+            }
+
+            Button {
+                id: infoButton
+                text: qsTranslate("PrefsDialogBase", "Show Info")
+                onClicked: {
+                    showChordInfo(getTrack());
                 }
             }
 
@@ -347,13 +387,12 @@ MuseScore {
                     quit()
                 }
             }
-            
-            Button {
-                id: infoButton
-                text: qsTranslate("PrefsDialogBase", "Show Info")
-                onClicked: {
-                    showChordInfo(getTrack());
-                }
+
+            TextArea {
+                id: resultText
+                Layout.columnSpan: 3
+                wrapMode: TextEdit.Wrap
+                placeholderText: qsTr(".\n.")
             }
         }
     }
@@ -369,8 +408,8 @@ MuseScore {
     }
 
     MessageDialog {
-        id: errorDialog
-        title: "Error"
+        id: messageDialog
+        title: ""
         text: ""
         onAccepted: {
             // quit()
@@ -378,8 +417,41 @@ MuseScore {
         // visible: false
     }
     
-    // Hoped this woul resolve the "action=main" warning in the log, but nope.
+    // Hoped this would resolve the "action=main" warning in the log, but nope.
     function main()
     {
+    }
+
+    FileIO {
+        id: logFile
+        source: tempPath() + "/capo-stacker-log.txt"
+    }
+
+    // DEBUG: Dump defined properties of an object as a string
+    function dumpObject( a_obj, a_indent )
+    {
+        var str = a_indent + "{{{\n";
+        for (var prop in a_obj) {
+            if (!(a_obj[prop] === undefined)) {
+                if (typeof a_obj[prop] === "function") {
+                    str += a_indent + "FUNCTION: " + prop + "\n";
+                }
+                else {
+                    str += a_indent + prop + " (" + (typeof a_obj[prop]) + "): " + a_obj[prop] + "\n";
+                    if ((typeof a_obj[prop] === "object") && (a_indent === "")) {
+                        str += dumpObject( a_obj[prop], "   " ) + "\n";
+                    }
+                }
+            }
+        }
+        return str + a_indent + "}}}\n";
+    }
+
+    // Show staff, voice, and tick position
+    function showWhere( a_cursor )
+    {
+        return "Staff:" + (a_cursor.staffIdx+1) +
+                " v" + (a_cursor.voice+1) +
+                " tick:" + a_cursor.tick;
     }
 }
