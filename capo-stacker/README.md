@@ -3,10 +3,10 @@
 This is a [MuseScore](https://handbook.musescore.org/) [plugin](https://musescore.org/en/plugins) which adds or removes capo chords to a score.
 
 MuseScore's built-in capo option puts the capo chords in parentheses to the right of the original chords. However:
-- Most published music puts capo chords in parentheses ABOVE the main chord.
-- If the chords get at all complex (F#maj7/C#) there isn't room for MuseScore's layout and some chords get squeezed upwards.
+- Most published music puts capo chords in parentheses *above* the main chord.
+- If the chords get at all complex (F#maj7/C#) and there are chord changes within a measure, there may not be room for MuseScore's layout and some chord symbols will get squeezed upwards.
 
-Capo-stacker read the chords in a score and inserts capo chords in parentheses above the original chords. It also inserts staff-text like "Capo: 3" before the first chord.
+Capo-stacker read the chord symbols in a score and inserts capo chords in parentheses above them. It also inserts staff-text like "Capo: 3" before the first chord.
 
 MuseScore's capo chords are display-time: they don't affect the saved score file except for the capo position saved in the Format settings. If you change a chord, the MuseScore capo chord will automatically update.
 
@@ -29,29 +29,34 @@ To update to a new version, simply replace the `capo-stacker` folder with the ne
 
 ## Operation
 
-The dialog has several controls:
+The Capo-stacker dialog has several controls:
 
-- `Staff with chords`: drop-list to select the staff whose chords are to be processed. In a typical lead sheet or vocal-plus-piano arrangement, this will be staff 1.
-   If the chords are on a different staff, capo-stacker may still see them on staff one. I haven't looked into this, as it doesn't affect my usage.
+- **Staff with chords**: drop-list to select the staff whose chords are to be processed, and where the capo chords are to be placed. In a typical lead sheet or vocal-plus-piano arrangement, this will be staff 1.
 
-- `Capo fret`: drop-list to select the capo position. Select `none (remove)` to remove capo chords.
+   At least in MuseScore 4.6.5, if you define chord symbols on one staff they will appear in the plugin's object model on *all* staves and Capo-stacker will see them on any staff. The capo chords will always be *written* to the specified staff.
 
-- `Capo label X offset`: this specifies an offset from the first chord at which to insert staff-text showing `Capo: x` The default value of -12 will usually be fine.
+- **Capo fret**: drop-list to select the desired capo position. Select `none (remove)` to remove capo chords.
 
-- `Capo label Y offset`" this specifies an offset from the original chords at which to insert staff-text and the capo chords. The default value of -5 will usually be fine. If this value is less negative, the capo chords may show at different heights.
+- **Capo label X offset**: this specifies an offset from the first chord at which to insert staff-text showing "Capo: x" The default value of -12 will usually be fine.
 
-- `Apply`: Click this to delete any existing capo chords, and insert new ones according to the value of `Capo fret.`
+- **Capo label Y offset**: this specifies an offset from the original chords at which to insert staff-text and the capo chords. The default value of -5 will usually be fine. If this value is less negative, some capo chords may show at different heights above the original chords in order to avoid collisions. Note that in the Style settings for chord symbols a Preset of `Legacy MuseScore` shows slash-bass notes slightly lower than the chord symbol, which increases the height of the chord symbol. A Preset of `Standard` shows slash-bass note at the same level as the chord symbol, which may permit the use of a slightly smaller Y offset.
 
-- `Close`: Click this to close the dialog.
+- **Apply**: Click this to delete any existing capo chords, and insert new ones according to the value of `Capo fret.` A log file is generated for debugging purposes, but can usually be ignored.
 
-- `Show Info`: this is a debug item that shows the positions of the chords. It may prove useful in adjusting the capo offset values, since variations in Y position are fairly obvious.
+- **Close**: Click this to close the dialog.
+
+- **Show Info**: Click this to write information about the chord symbols and their positions to a log file. This may prove useful in adjusting the capo offset values, since variations in Y position are fairly obvious in the log.
 
 ## Notes and Limitations
 
 Because of enharmonic note and chord spellings, determining the correct translation of a chord isn't as easy as you might think: is that a C-sharp or a D-flat?
 
-This version of Capo-stacker punts: it has a table filled in with information cribbed from MuseScore's capo chords for a test file. In my usage thus far, it seems to cope with the key signatures, chords, and guitarists that I encounter: no more than four sharps or flats in the original key, and guitarists who want to capo into C, G, D, or A.
+This version of Capo-stacker punts: it has a table filled in with information cribbed from MuseScore's capo chords for a test file. Thus far, it seems to cope with the key signatures, chords, and guitarists that I encounter: no more than four sharps or flats in the original key, and guitarists who want to capo into C, G, D, or A.
 
-If the staff with chord symbols has multiple voices, MuseScore 4.6.5 (at least) may associate some chord symbol with other than voice 1, at least as read by a plugin using a cursor. In some cases, the same chord symbol may be seen by cursors on more than one voice.
+If the staff with chord symbols has multiple voices, MuseScore 4.6.5 (at least) may associate some chord symbol with other than voice 1, at least as read by a plugin using a Cursor. In some cases, the same chord symbol may be seen by Cursors on more than one voice. Capo-stacker should properly handle this. (The log file will show the voice information, should you be curious.)
 
-Capo-stacker does its best to find all "real" chord symbols and ignore the duplicates, but there may be cases that I have not seen that are not handled properly.
+I would have liked to make the log files show measure number and beat rather than MIDI ticks. However, the Measure object in the plugin's object model does not include measure number among its large list of properties. Google suggest just counting measures. That will work in some cases but
+
+- By default, MuseScore's measure numbers don't count pickup measures
+- You can use the `Measure Properties` of *any* measure to skip the measure from the count, or add an offset to the count
+- If your score includes a Section Break, the measure after the break is number 1.
