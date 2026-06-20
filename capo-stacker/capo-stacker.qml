@@ -42,7 +42,7 @@ import Muse.UiComponents
 import FileIO
 
 MuseScore {
-    version: "3.0.0"
+    version: "3.0.1"
     title: "Capo-stacker"
     description: "Insert capo chords ABOVE main chords"
     categoryCode: "composing-arranging-tools"
@@ -181,7 +181,7 @@ MuseScore {
         {
             curScore.startCmd();
             curScore.selection.selectRange(0, curScore.lastSegment.tick + 1,
-                                           a_staffNumber, 1);
+                                           a_staffNumber, a_staffNumber + 1);
             curScore.endCmd();
         }
     }
