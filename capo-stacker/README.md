@@ -29,11 +29,11 @@ To update to a new version, simply replace the `capo-stacker` folder with the ne
 
 ## Operation
 
+If you have a range of measure selected when you invoke Capo-stacker's **Apply** or **Show Info**, the actions will be applied to that range. If no range is selected, Capo-stacker will select the entire specified **Staff with chords** and act on that range.
+
 The Capo-stacker dialog has several controls:
 
 - **Staff with chords**: drop-list to select the staff whose chords are to be processed, and where the capo chords are to be placed. In a typical lead sheet or vocal-plus-piano arrangement, this will be staff 1.
-
-   At least in MuseScore 4.6.5, if you define chord symbols on one staff they will appear in the plugin's object model on *all* staves and Capo-stacker will see them on any staff. The capo chords will always be *written* to the specified staff.
 
 - **Capo fret**: drop-list to select the desired capo position. Select `none (remove)` to remove capo chords.
 
@@ -41,22 +41,27 @@ The Capo-stacker dialog has several controls:
 
 - **Capo label Y offset**: this specifies an offset from the original chords at which to insert staff-text and the capo chords. The default value of -5 will usually be fine. If this value is less negative, some capo chords may show at different heights above the original chords in order to avoid collisions. Note that in the Style settings for chord symbols a Preset of `Legacy MuseScore` shows slash-bass notes slightly lower than the chord symbol, which increases the height of the chord symbol. A Preset of `Standard` shows slash-bass note at the same level as the chord symbol, which may permit the use of a slightly smaller Y offset.
 
-- **Apply**: Click this to delete any existing capo chords, and insert new ones according to the value of `Capo fret.` A log file is generated for debugging purposes, but can usually be ignored.
+- **Capo text size adjust**: this lets you make the capo chord symbols larger (+) or smaller (-) than the original chord symbols.
 
-- **Close**: Click this to close the dialog.
+- **Apply**: Click this to delete any existing capo chords, and insert new ones according to the value of `Capo fret.` A log file is generated for debugging purposes, but can usually be ignored.
 
 - **Show Info**: Click this to write information about the chord symbols and their positions to a log file. This may prove useful in adjusting the capo offset values, since variations in Y position are fairly obvious in the log.
 
+- **Close**: Click this to close the dialog.
+
 ## Notes and Limitations
 
-Because of enharmonic note and chord spellings, determining the correct translation of a chord isn't as easy as you might think: is that a C-sharp or a D-flat?
+**Because of enharmonic note and chord spellings, determining the correct translation of a chord isn't as easy as you might think: is that a C-sharp or a D-flat?**
 
 This version of Capo-stacker punts: it has a table filled in with information cribbed from MuseScore's capo chords for a test file. Thus far, it seems to cope with the key signatures, chords, and guitarists that I encounter: no more than four sharps or flats in the original key, and guitarists who want to capo into C, G, D, or A.
 
-If the staff with chord symbols has multiple voices, MuseScore 4.6.5 (at least) may associate some chord symbol with other than voice 1, at least as read by a plugin using a Cursor. In some cases, the same chord symbol may be seen by Cursors on more than one voice. Capo-stacker should properly handle this. (The log file will show the voice information, should you be curious.)
+**If the beat or sub-beat where a chord symbol appears has no note or rest in the staff, the plug-in engine's Cursor won't stop on the chord symbol, and a plug-in cannot immediately add a symbol for the capo-chord.**
 
-I would have liked to make the log files show measure number and beat rather than MIDI ticks. However, the Measure object in the plugin's object model does not include measure number among its large list of properties. Google suggest just counting measures. That will work in some cases but
+This plug-in works around the problem via a hack using Voice 4:
+- The plug-in checks Voice 4 of the staff being processed for any notes or rests. If any are found, a warning is generated and processing stops.
+- Traverse the selected region:
+  - If a chord symbol is found on a beat that DOES NOT have a note or rest, insert a rest on that beat in Voice 4.
+  - Add the capoed chord symbol (which will be associated either with a "real" note or rest, or with the rest just added to Voice 4.)
+- After processing the entire selection, delete any rests in Voice 4.
 
-- By default, MuseScore's measure numbers don't count pickup measures
-- You can use the `Measure Properties` of *any* measure to skip the measure from the count, or add an offset to the count
-- If your score includes a Section Break, the measure after the break is number 1.
+My typical score with chord symbols might use a second voice on a staff for a harmony part. Or it might use a second voice with cue-size notes when there are slight differences in melody between verses. But I haven't needed to use more than two voices on a staff with chord symbols. If your scores love Voice 4, you many not like capo-stacker.

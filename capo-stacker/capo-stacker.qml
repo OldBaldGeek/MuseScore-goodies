@@ -14,6 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// ISSUES AND LIMITATIONS:
+// If the beat or sub-beat where a chord symbol appears has no note or rest,
+// the Cursor won't stop there, and a script cannot add a symbol for the capo-chord.
+//
+// This plug-in uses a hack to sneak around the problem by using Voice 4:
+// - The plug-in checks Voice 4 of the staff being processed for any notes or rests.
+//   If any are found, a warning is generated and processing stops.
+// - Traverse the selected region:
+//   - If a chord symbol is found on a beat that DOES NOT have a note or rest,
+//     insert a rest on that beat in Voice 4.
+//   - Add the capoed chord symbol (which will be associated either with a "real"
+//     note or rest, or with the rest just added to Voice 4.)
+// - After processing the entire selection, delete anything in Voice 4.
+//
+// It seems to me that few scores with chord symbols will also use Voice 4 on the
+// staff with the chord symbols.
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -25,15 +42,18 @@ import Muse.UiComponents
 import FileIO
 
 MuseScore {
-    version: "2.0.0"
+    version: "3.0.0"
     title: "Capo-stacker"
     description: "Insert capo chords ABOVE main chords"
     categoryCode: "composing-arranging-tools"
     pluginType: "dialog"
     thumbnailName: "capo-stacker.png"
 
-    width:  360
-    height: 240
+    width:  380
+    height: 280
+
+    // Offset to the voice used for added rests (usually V4)
+    property int hackVoice: 3
 
     onRun: {
         if (!curScore) {
@@ -42,90 +62,263 @@ MuseScore {
         }
     }
 
+    //============================================================================
+    // Remove any existing capo chords, and add new ones as specified
     function applyCapo()
     {
-        var trackNumber = getTrack();
+        resultText.placeholderText = "\n.";
+
+        var staffNumber = getStaff(); // staff 0 to N-1
+        selectIfNeeded(staffNumber);
+
+        var str = checkHackVoice(staffNumber);
+        if (str != "") {
+            var errmsg = "Elements were found in Voice " + (hackVoice+1) +
+                          " which we may need to use.";
+            logFile.write(errmsg + "\n" + str);
+            resultText.placeholderText = "Details may be found in\n" + logFile.source;
+
+            message("Error", errmsg + ". See log file.\n");
+            return;
+        }
+
+        str = title + " " + version + "\n";
+
+        // Delete any existing capo chord symbols
+        curScore.startCmd();
+        str += deleteCapoChords(staffNumber);
+        curScore.endCmd();
+
         var capo = getCapo();
-        curScore.startCmd()
-
-        // Delete any existing capo or manually-inserted stacked chords
-        deleteExtraChords(trackNumber);
-
         if (capo != 0) {
-            var str = "Inserting capo chords on staff " + (trackNumber/4 + 1) + "\n";
+            curScore.startCmd();
 
-            // Build a dictionary indexed by tick containing chords
-            var allTheChords = ({});
+            str += "\nInserting capo chords on staff " + (staffNumber + 1) + "\n";
+            var sel = getSelectedElements(staffNumber);
+            str += "Selection has " + sel.length + " elements for staff " +
+                   (staffNumber + 1) + "\n";
+
             var showedCapoText = false;
+            var cursor = curScore.newCursor();
+            for (var i=0; i<sel.length; i++) {
+                if (sel[i] && (sel[i].type == Element.HARMONY)) {
+                    var tokens = parseChordSymbol(sel[i].text);
+                    str += "Harmony element at " + sel[i].parent.tick +
+                           " is " + sel[i].text +
+                           " [" + tokens[0] + ", " + tokens[1] +
+                           ", " + tokens[2] + "]\n";
 
-            // Find chords on all voices of the specified track
-            for (var voice = 0; voice < 4; voice++) {
-                var cursor = curScore.newCursor();
-                cursor.track = trackNumber + voice;
-                cursor.rewind(Cursor.SCORE_START);
+                    var capoChord = sel[i].clone();
+                    capoChord.text = "(" + capoed(tokens[0], capo, "") +
+                                     tokens[1] +
+                                     capoed( tokens[2], capo, "/") + ")";
+                    capoChord.fontSize += Number(sizeAdjust.text);
+                    capoChord.play = false;
 
-                while (cursor.segment) {
-                    var annotations = cursor.segment.annotations;
-                    for (var a in annotations) {
-                        var annotation = annotations[a];
-                        if ((annotation.name == "Harmony") && (annotation.text[0] != "(")) {
-                            if (cursor.tick in allTheChords) {
-                                if (allTheChords[cursor.tick] === annotation.text) {
-                                    str += showWhere(cursor) + " Duplicate " + annotation.text + "\n";
-                                }
-                                else {
-                                    str += "CONFLICTING CHORDS " +
-                                           showWhere(cursor) + " Chord " + annotation.text +
-                                           " vs previous " + allTheChords[cursor.tick] + "\n";
-                                }
-                            }
-                            else {
-                                // New chord
-                                allTheChords[cursor.tick] = annotation.text;
+                    // If we use the defaults, the capo chords may end up
+                    // at different heights (-4.7 and a bit) depending
+                    // on the main chord below them.
+                    // Set an explicit value to smooth them out and to
+                    // align with the "Capo:X" text.
+                    capoChord.offsetY = Number(offsetY.text);
 
-                                // Add a capoed version of the chord to this voice
-                                var tokens = parseChordSymbol(annotation.text);
-                                var capoChord = annotation.clone();
-                                capoChord.text = "(" + capoed(tokens[0], capo, "") +
-                                                 tokens[1] +
-                                                 capoed( tokens[2], capo, "/") + ")";
-                                capoChord.play = false;
+                    var chordTick = sel[i].parent.tick;
+                    cursor.rewindToTick(chordTick);
+                    if (cursor.tick != chordTick) {
+                        // Chord symbol is at a tick location where there is no
+                        // note or rest, so cursor can't rewind to there.
+                        // Add a temporary rest to hang the chord symbol on.
+                        str += "  Floating chord symbol at " + chordTick +
+                               " vs cursor at " + cursor.tick + "\n";
+                        cursor.prev();
+                        cursor.track += hackVoice;
+                        var deltaTicks = chordTick - cursor.tick;
+                        str += "  Back up cursor to tick " + cursor.tick +
+                               " on track " + (hackVoice+1) +
+                               " and add " + deltaTicks + " ticks of rest\n";
+                        cursor.setDuration( deltaTicks/60, 32 );
+                        cursor.addRest();
 
-                                // If we use the default, the capo chords end up
-                                // at different heights (-4.7 and a bit) depending
-                                // on the main chord below them.
-                                // Set an explicit value to smooth them out and
-                                // line up the "Capo:X" text.
-                                capoChord.offsetY = Number(offsetY.text);
-                                cursor.add(capoChord);
-
-                                str += showWhere(cursor) + " Chord " + annotation.text +
-                                       " capoed to " + capoChord.text + "\n";
-
-                                if (!showedCapoText) {
-                                    // First chord symbol. Insert Capo text
-                                    // Ideally, want this just to the left of
-                                    // the first capo chord.
-                                    var capoText = newElement(Element.STAFF_TEXT);
-                                    capoText.text = "Capo: " + capo;
-                                    cursor.add(capoText);
-                                    capoText.offsetX = Number(offsetX.text);
-                                    capoText.offsetY = Number(offsetY.text);
-                                    showedCapoText = true;
-                                }
-                            }
-                        }
+                        // Add a sixteenth rest on which to hang the chord symbol
+                        // then back up the cursor so we can aded the chord there
+                        cursor.setDuration( 2, 32 );
+                        cursor.addRest();
+                        cursor.prev();
+                        cursor.track -= hackVoice;
                     }
-                    cursor.next();
+
+                    cursor.add(capoChord);
+                    str += "  Added capo chord " + smallDump(capoChord);
+
+                    if (!showedCapoText) {
+                        // First chord symbol. Insert "Capo:N" text
+                        // Ideally, want this just to the left of
+                        // the first capo chord.
+                        var capoText = newElement(Element.STAFF_TEXT);
+                        capoText.text = "Capo: " + capo;
+                        cursor.add(capoText);
+                        capoText.offsetX = Number(offsetX.text);
+                        capoText.offsetY = Number(offsetY.text);
+                        showedCapoText = true;
+                    }
                 }
             }
 
-            logFile.write(str)
-            resultText.placeholderText = "Capo actions may be found in\n" + logFile.source
+            // Remove any rests we added
+            str += deleteAddedRests(staffNumber);
+            curScore.endCmd();
         }
-        curScore.endCmd()
+
+        logFile.write(str);
+        resultText.placeholderText = "Details of actions may be found in\n" + logFile.source;
     }
 
+    //============================================================================
+    // Select the specified staff if there is currently no range selected.
+    function selectIfNeeded(a_staffNumber)
+    {
+        if ((curScore.selection.elements.length == 0) || !curScore.selection.isRange)
+        {
+            curScore.startCmd();
+            curScore.selection.selectRange(0, curScore.lastSegment.tick + 1,
+                                           a_staffNumber, 1);
+            curScore.endCmd();
+        }
+    }
+
+    //============================================================================
+    // Return an array of the Elements for this staff in the selected range
+    function getSelectedElements(a_staffNumber)
+    {
+        var selectedElements = curScore.selection.elements;
+        var sel = [];
+        for (var i=0; i<selectedElements.length; i++) {
+            if (selectedElements[i].track/4 == a_staffNumber) {
+                sel.push(selectedElements[i]);
+            }
+        }
+        return sel;
+    }
+
+    //============================================================================
+    // Check Hack Voice for existing items we might damage if we added rests.
+    // Return empty string if nothing found, else description of the items.
+    //
+    // This checks the ENTIRE score, not just the selection.
+    // We could rewind to SCORE_SELECTION, but would need to terminate at the END
+    // of the selection. And use of the voice ANYWHERE seems fraught.
+    function checkHackVoice(a_staffNumber)
+    {
+        var str = "";
+        var cursor = curScore.newCursor();
+        cursor.track = 4*a_staffNumber + hackVoice;
+        cursor.rewind(Cursor.SCORE_START);
+
+        while (cursor.element) {
+            str += "Voice " + (hackVoice + 1) + " has " + smallDump(cursor.element);
+            cursor.next();
+        }
+        return str;
+    }
+
+    //============================================================================
+    // Remove any rests we added to hang chords on.
+    //
+    // This cleans the ENTIRE score, not just the selection.
+    // We could rewind to SCORE_SELECTION, but would need to terminate at the END
+    // of the selection. And use of the voice ANYWHERE seems fraught.
+    function deleteAddedRests(a_staffNumber)
+    {
+        var str = "Removing temporary rests from staff " + (a_staffNumber + 1) +
+                  " Voice " + (hackVoice + 1) + "\n";
+        var cursor = curScore.newCursor();
+        cursor.track = 4*a_staffNumber + hackVoice;
+        cursor.rewind(Cursor.SCORE_START);
+
+        while (cursor.element) {
+            if (cursor.element.type == Element.REST) {
+                str += "  Deleting " + smallDump(cursor.element);
+                removeElement(cursor.element);
+            }
+            cursor.next();
+        }
+        return str;
+    }
+
+    //============================================================================
+    // Delete any non-playing chords in parenthesis, and the text "Capo:X"
+    function deleteCapoChords(a_staffNumber)
+    {
+        var str = "Removing capo chords from staff " + (a_staffNumber + 1) + "\n";
+        var sel = getSelectedElements(a_staffNumber);
+        str += "  Selection has " + sel.length + " elements for staff " +
+               (a_staffNumber + 1) + "\n";
+
+        for (var i=0; i<sel.length; i++) {
+            var element = sel[i];
+            if (element) {
+                if ((element.type == Element.HARMONY) &&
+                    (element.text[0] == "(") &&
+                    (!element.play))
+                {
+                    // Non-playing chord symbol in parentheses assumed to be capo
+                    str += "  Deleting chord symbol - " + smallDump(element);
+                    removeElement(element);
+                }
+                else if ((element.type == Element.STAFF_TEXT) &&
+                          (element.text.indexOf("Capo:") == 0))
+                {
+                     // Capo text, assumed to be from previous capo run
+                    str += "  Deleting Capo text - " + smallDump(element);
+                    removeElement(element);
+                }
+            }
+        }
+
+        // Delete any temporary rests in our hack voice
+        str += deleteAddedRests(a_staffNumber);
+        return str;
+    }
+
+    //============================================================================
+    // Show info about of all chords
+    function showChordInfo(a_staffNumber)
+    {
+        selectIfNeeded(a_staffNumber);
+
+        resultText.placeholderText = "\n.";
+        var str = title + " " + version + " Showing chord data for staff " +
+                  (a_staffNumber + 1) + "\n";
+
+        var str2 = checkHackVoice(a_staffNumber);
+        if (str2 != "") {
+            var errmsg = "Unexpected items in Voice " + (hackVoice+1);
+            str += errmsg + "\n" + str2;
+            message("Warning", errmsg);
+        }
+
+        str += "Chord symbols\n";
+        var sel = getSelectedElements(a_staffNumber);
+        str += "Selection has " + sel.length + " elements for staff " +
+               (a_staffNumber + 1) + "\n";
+
+        for (var i=0; i<sel.length; i++) {
+            var element = sel[i];
+            if (element) {
+                if (element.type == Element.HARMONY) {
+                    str += "  " + smallDump(element);
+                }
+                else if (element.type == Element.STAFF_TEXT) {
+                    str += "  " + smallDump(element);
+                }
+            }
+        }
+
+        logFile.write(str);
+        resultText.placeholderText = "Chord information may be found in\n" + logFile.source;
+    }
+
+    //============================================================================
     // Return the capoed equivalent of a note
     function capoed( a_note, a_capoPos, a_preChar )
     {
@@ -171,82 +364,11 @@ MuseScore {
         return "";
     }
 
-    // Delete all but the first chord at a given tick position and voice
-    function deleteExtraChords(a_trackNumber)
-    {
-        for (var voice = 0; voice < 4; voice++) {
-            var cursor = curScore.newCursor();
-            cursor.track = a_trackNumber + voice;
-            cursor.rewind(Cursor.SCORE_START);
-
-            var tick = -1;
-            while (cursor.segment) {
-                var annotations = cursor.segment.annotations;
-                // Careful looping, as we will be deleting elements
-                for (let a=0; a < annotations.length; a++) {
-                    var annotation = annotations[a];
-                    if (annotation.name == "Harmony") {
-                        if (cursor.tick != tick) {
-                            // new chord position - leave it alone
-                            tick = cursor.tick;
-                        }
-                        else {
-                            // Extra chord, typically from a previous capo run
-                            removeElement(annotation);
-                            a--;    // back up the index to account for deletiong
-                        }
-                    }
-                    else if ((annotation.name == "StaffText") &&
-                              (annotation.text.indexOf("Capo:") == 0))
-                    {
-                         // Capo text, presumably from previous capo run
-                         removeElement(annotation);
-                         a--;    // back up the index to account for deletiong
-                    }
-                }
-                cursor.next();
-            }
-        }
-    }
-
-    // Show info about of all chords
-    function showChordInfo(a_trackNumber)
-    {
-        var str = "Showing chord data for staff " + (a_trackNumber/4 + 1) + "\n";
-
-        for (var voice = 0; voice < 4; voice++) {
-            var cursor = curScore.newCursor();
-            cursor.track = a_trackNumber + voice;
-            cursor.rewind(Cursor.SCORE_START);
-
-            while (cursor.segment) {
-                var annotations = cursor.segment.annotations;
-                for (let a=0; a < annotations.length; a++) {
-                    var annotation = annotations[a];
-                    if ((annotation.name == "Harmony") ||
-                        (annotation.name == "StaffText"))
-                    {
-                        // More than you want to know
-                        // str += dumpObject(annotation, "");
-                        str += showWhere(cursor) +
-                               " " + annotation.name +
-                               " " + annotation.text +
-                               "\t pX=" + annotation.posX +
-                               " pY="  + annotation.posY +
-                               "\n";
-                    }
-                }
-                cursor.next();
-            }
-        }
-        logFile.write(str)
-        resultText.placeholderText = "Chord information may be found in\n" + logFile.source
-    }
-
+    //============================================================================
     // Given a string representing a chord (e.g. "C#maj7b9/G#"), return
     // - Chord note including any sharp or flat
     // - stuff after the chord (min7...) if there is any (else "")
-    // - If there is a slash, then Bass noteincluding any sharp or flat (else "")
+    // - If there is a slash, then Bass note including any sharp or flat (else "")
     // 
     function parseChordSymbol(symbol) {
         // Use a regex to split the chord symbol into an array of tokens.
@@ -272,13 +394,115 @@ MuseScore {
         return [ chordNote, tokens[4] ? tokens[4] : "", bassNote ];
     }
 
-    function message(a_title, a_message) {
-        messageDialog.title = qsTranslate("PrefsDialogBase", a_title)
-        messageDialog.text = qsTr(a_message)
-        messageDialog.visible = false
-        messageDialog.open()
+    //============================================================================
+    function message(a_title, a_message)
+    {
+        messageDialog.title = qsTranslate("PrefsDialogBase", a_title);
+        messageDialog.text = qsTr(a_message);
+        messageDialog.visible = false;
+        messageDialog.open();
     }
 
+    //============================================================================
+    // DEBUG: Dump defined properties of an object as a string
+    function dumpObject( a_obj, a_indent )
+    {
+        var str = a_indent + "{{{\n";
+        for (var prop in a_obj) {
+            if (!(a_obj[prop] === undefined)) {
+                if (typeof a_obj[prop] === "function") {
+                    str += a_indent + "FUNCTION: " + prop + "\n";
+                }
+                else {
+                    str += a_indent + prop + " (" + (typeof a_obj[prop]) + "): " + a_obj[prop] + "\n";
+                    if ((typeof a_obj[prop] === "object") && (a_indent === "")) {
+                        str += dumpObject( a_obj[prop], "   " ) + "\n";
+                    }
+                }
+            }
+        }
+        return str + a_indent + "}}}\n";
+    }
+
+    //============================================================================
+    // DEBUG: Dump selected properties of an object as a string
+    function smallDump( a_obj )
+    {
+        var str = "";
+        if (a_obj) {
+            str += showGoodStuff("Type:",   a_obj.type) +
+                   showGoodStuff("name:",  a_obj.name) +
+                   showGoodStuff("subType:", a_obj.subtypeName()) +
+                   showGoodStuff("text:",  a_obj.text);
+            if (a_obj.tick) {
+                str += showGoodStuff("tick:", a_obj.tick);
+            }
+            else {
+                str += showGoodStuff("tick:", a_obj.parent.tick);
+            }
+            //str += showGoodStuff("pX:", a_obj.posX);
+            str += showGoodStuff("pY:", a_obj.posY);
+
+            if (a_obj.actualDuration) {
+                str += showGoodStuff("duration:", a_obj.actualDuration.str);
+            }
+
+            // Scan parents to fine the containing measure
+            var ob = a_obj;
+            var measure = a_obj.measure;
+            while (!measure) {
+                // see if a parent is a Measure
+                ob = ob.parent;
+                if (!ob) {
+                    break;  // no Measure parent
+                }
+                if (ob.type === Element.MEASURE) {
+                    measure = ob;
+                }
+            }
+            if (measure) {
+                var measureNumber = 1;
+                var meas = curScore.firstMeasure;
+                while (meas) {
+                    if (meas.is(measure)) {
+                        break;
+                    }
+                    meas = meas.nextMeasure;
+                    measureNumber += 1;
+                }
+                str += showGoodStuff("Measure:", measureNumber);
+            }
+        }
+
+        return str + "\n";
+    }
+
+    //============================================================================
+    // If the value is defined and not null, return description and value, else ""
+    // Strings are wrapped in single quotes
+    function showGoodStuff( a_label, a_value )
+    {
+        if (a_value == null) {
+            return "";
+        }
+
+        if (typeof(a_value) == "string") {
+            a_value = "'" + a_value + "'";
+        }
+
+        return a_label + a_value + "\t";
+    }
+
+    //============================================================================
+    // Show staff, voice, and tick position
+    function showWhere( a_cursor )
+    {
+        return "Staff:" + (a_cursor.staffIdx+1) +
+                " v" + (a_cursor.voice+1) +
+                " tick:" + a_cursor.tick;
+    }
+
+    //============================================================================
     Item {
         anchors.fill: parent
 
@@ -292,15 +516,15 @@ MuseScore {
                 text: "Staff with chords"
             }
             StyledDropdown {
-                id: chordTrack
+                id: chordStaff
                 Layout.columnSpan: 2
                 model: [
-                    { 'text': "1", 'track': 0 },
-                    { 'text': "2", 'track': 4 },
-                    { 'text': "3", 'track': 8 },
-                    { 'text': "4", 'track': 12 },
-                    { 'text': "5", 'track': 16 },
-                    { 'text': "6", 'track': 20 }
+                    { 'text': "1", 'staff': 0 },
+                    { 'text': "2", 'staff': 1 },
+                    { 'text': "3", 'staff': 2 },
+                    { 'text': "4", 'staff': 3 },
+                    { 'text': "5", 'staff': 4 },
+                    { 'text': "6", 'staff': 5 }
                 ]
                 currentIndex: 0
                 onActivated: function(index, value) {
@@ -364,6 +588,20 @@ MuseScore {
                 }
             }
 
+            Label {
+                text: "Capo text size adjust"
+            }
+            TextField {
+                id: sizeAdjust
+                Layout.columnSpan: 2
+                text: "0"  // Same size as non-capo chords
+                validator: IntValidator {
+                    bottom: -3
+                    top: 3
+                    locale: "en"
+                }
+            }
+
             Button {
                 id: applyButton
                 text: qsTranslate("PrefsDialogBase", "Apply")
@@ -376,7 +614,7 @@ MuseScore {
                 id: infoButton
                 text: qsTranslate("PrefsDialogBase", "Show Info")
                 onClicked: {
-                    showChordInfo(getTrack());
+                    showChordInfo(getStaff());
                 }
             }
 
@@ -391,15 +629,17 @@ MuseScore {
             TextArea {
                 id: resultText
                 Layout.columnSpan: 3
+                Layout.fillWidth: true
                 wrapMode: TextEdit.Wrap
-                placeholderText: qsTr(".\n.")
+                placeholderText: "Actions will be applied to the current selection, " +
+                                 "if any,\nelse to the entire score.\n"
             }
         }
     }
 
-    function getTrack()
+    function getStaff()
     {
-        return chordTrack.model[chordTrack.currentIndex].track;
+        return chordStaff.model[chordStaff.currentIndex].staff;
     }
 
     function getCapo()
@@ -425,33 +665,5 @@ MuseScore {
     FileIO {
         id: logFile
         source: tempPath() + "/capo-stacker-log.txt"
-    }
-
-    // DEBUG: Dump defined properties of an object as a string
-    function dumpObject( a_obj, a_indent )
-    {
-        var str = a_indent + "{{{\n";
-        for (var prop in a_obj) {
-            if (!(a_obj[prop] === undefined)) {
-                if (typeof a_obj[prop] === "function") {
-                    str += a_indent + "FUNCTION: " + prop + "\n";
-                }
-                else {
-                    str += a_indent + prop + " (" + (typeof a_obj[prop]) + "): " + a_obj[prop] + "\n";
-                    if ((typeof a_obj[prop] === "object") && (a_indent === "")) {
-                        str += dumpObject( a_obj[prop], "   " ) + "\n";
-                    }
-                }
-            }
-        }
-        return str + a_indent + "}}}\n";
-    }
-
-    // Show staff, voice, and tick position
-    function showWhere( a_cursor )
-    {
-        return "Staff:" + (a_cursor.staffIdx+1) +
-                " v" + (a_cursor.voice+1) +
-                " tick:" + a_cursor.tick;
     }
 }
