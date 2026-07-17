@@ -18,7 +18,7 @@
 // If the beat or sub-beat where a chord symbol appears has no note or rest,
 // the Cursor won't stop there, and a script cannot add a symbol for the capo-chord.
 //
-// This plug-in uses a hack to sneak around the problem by using Voice 4:
+// This plug-in uses a hack to work around the problem by using Voice 4:
 // - The plug-in checks Voice 4 of the staff being processed for any notes or rests.
 //   If any are found, a warning is generated and processing stops.
 // - Traverse the selected region:
@@ -42,7 +42,7 @@ import Muse.UiComponents
 import FileIO
 
 MuseScore {
-    version: "3.0.1"
+    version: "3.1.1"
     title: "Capo-stacker"
     description: "Insert capo chords ABOVE main chords"
     categoryCode: "composing-arranging-tools"
@@ -57,13 +57,45 @@ MuseScore {
 
     onRun: {
         if (!curScore) {
-            message("Error", "No score open.\nThis plugin requires an open score to run.\n")
-            quit()
+            message("Error", "No score open.\nThis plugin requires an open score to run.\n");
+            quit();
         }
+
+        // Add staff names from this score to the staff drop-list, then refresh
+        chordStaff.model = [];
+        var lastPart = null;
+        var subPart = 0;
+        // The only multi-staff instruments I know are keyboards.
+        // If there are others, these labels may not be appropriate.
+        var staveNames = ["Upper", "Lower", "Pedal", "4", "5", "6"];
+        for (var i=0; i<curScore.nstaves; i++) {
+            var part = curScore.staves[i].part;
+            var staffName = part.longName;
+            if (staffName == "") {
+                staffName = part.partName;
+            }
+
+            if (part.endTrack - part.startTrack > 4) {
+                // multi-line part such as piano or organ
+                if (!part.is(lastPart)) {
+                    lastPart = part;
+                    subPart = 0;
+                }
+                else {
+                    subPart += 1;
+                }
+                staffName += " (" + staveNames[subPart] + ")";
+            }
+
+            var val = {'text' : (i+1) + " " + staffName, 'staff': i };
+            chordStaff.model.push( val );
+        }
+        chordStaff.currentIndex = -1;
+        chordStaff.currentIndex = 0;
     }
 
     //============================================================================
-    // Remove any existing capo chords, and add new ones as specified
+    // Remove any existing capo chords and add new ones as specified
     function applyCapo()
     {
         resultText.placeholderText = "\n.";
@@ -246,7 +278,8 @@ MuseScore {
     }
 
     //============================================================================
-    // Delete any non-playing chords in parenthesis, and the text "Capo:X"
+    // We assume that any non-playing chords in parenthesis, and the text "Capo:X"
+    // are artifacts of a previous run, so remove them.
     function deleteCapoChords(a_staffNumber)
     {
         var str = "Removing capo chords from staff " + (a_staffNumber + 1) + "\n";
@@ -405,6 +438,7 @@ MuseScore {
 
     //============================================================================
     // DEBUG: Dump defined properties of an object as a string
+    // Recursive to one more level if a_indent=""
     function dumpObject( a_obj, a_indent )
     {
         var str = a_indent + "{{{\n";
@@ -491,15 +525,6 @@ MuseScore {
         }
 
         return a_label + a_value + "\t";
-    }
-
-    //============================================================================
-    // Show staff, voice, and tick position
-    function showWhere( a_cursor )
-    {
-        return "Staff:" + (a_cursor.staffIdx+1) +
-                " v" + (a_cursor.voice+1) +
-                " tick:" + a_cursor.tick;
     }
 
     //============================================================================
