@@ -26,7 +26,7 @@ import Muse.UiComponents
 import FileIO
 
 MuseScore {
-    version: "1.0.0"
+    version: "1.1.0"
     title: "Lyrics-Buddy"
     description: "Tools to insert and format lyrics"
     // categoryCode: "composing-arranging-tools"
@@ -136,10 +136,20 @@ MuseScore {
     }
 
     //============================================================================
-    // Change barline style
-    function setBarlineStyle(a_style)
+    function chantify()
     {
-        time_stamp("Setting barline style to " + a_style);
+        if (!curScore.selection.isRange ||
+            (curScore.selection.elements.length == 0))
+        {
+            message("Error", "You must select a range to format.");
+            return;
+        }
+
+        var barline_type = barlineType.model[barlineType.currentIndex].type;
+        var stem_type = stemType.model[stemType.currentIndex].type;
+        time_stamp("Formatting barlines:" + barline_type +" stems:" + stem_type)
+        log("Selection includes staves " + (curScore.selection.startStaff+1) +
+            " through " + curScore.selection.endStaff + "\n");
 
         var cursor = curScore.newCursor();
         cursor.InputStateMode = Cursor.INPUT_STATE_SYNC_WITH_SCORE;
@@ -150,18 +160,20 @@ MuseScore {
             endTick = curScore.lastSegment.tick;
         }
 
-        cursor.rewind(Cursor.SELECTION_START);
-        log("Selection is from tick " + cursor.tick + " to " + endTick + "\n");
-
-        // Loop on segments to replace barlines
         curScore.startCmd();
-        var segment = cursor.segment
-        while (segment && (segment.tick <= endTick)) {
-            up_nest("\nSegment at " + segment.tick);
-            var element = segment.elementAt(cursor.track);
-            if (element) {
-                if (element.type === Element.BAR_LINE) {
-                    log("Element is " + element.name + "\n");
+        cursor.rewind(Cursor.SELECTION_START);
+        cursor.filter = -1; // SegmentType.ALL
+        log("Selection from tick " + cursor.tick + " to " + endTick + "\n");
+
+        while (cursor.tick < endTick) {
+            for (var track = 4*curScore.selection.startStaff;
+                 track < 4*curScore.selection.endStaff;
+                 track++)
+            {
+                cursor.track = track;
+                var element = cursor.element;
+                if (element && (element.type === Element.BAR_LINE)) {
+                    log("Track " + track + ". Bar line at " + cursor.tick + "\n");
                     showGoodStuff("barlineType", element.barlineType, "  ");
                     showGoodStuff("barlineSpan", element.barlineSpan, "  ");
                     showGoodStuff("barlineSpanFrom", element.barlineSpanFrom, "  ");
@@ -176,7 +188,7 @@ MuseScore {
                     // BARLINE_SPAN_SHORT1_TO         = -2;
                     // BARLINE_SPAN_SHORT2_FROM       =  1;
                     // BARLINE_SPAN_SHORT2_TO         = -1;
-                    switch (a_style) {
+                    switch (barline_type) {
                         case "standard":
                             element.barlineSpan = true;
                             element.barlineSpanFrom = 0;
@@ -193,75 +205,38 @@ MuseScore {
                             element.barlineSpanTo   = -2;
                             break;
                         default:
-                            message("Error", "Invalid barline style: " + a_style);
+                            // do nothing;
                             break;
                     }
                 }
-            }
-            down_nest();
-            segment = segment.next;
-        }
-
-        curScore.endCmd();
-    }
-
-    //============================================================================
-    function chantify()
-    {
-        if (curScore.selection.elements.length == 0)
-        {
-            message("Error", "You must select a region to format.");
-            return;
-        }
-
-        var barType = barlineType.model[barlineType.currentIndex].type;
-        if (barType != "unchanged") {
-            setBarlineStyle(barType);
-        }
-
-        var stem_type = stemType.model[stemType.currentIndex].type;
-        if (stem_type != "unchanged") {
-            time_stamp("Setting stems to " + stem_type);
-
-            var cursor = curScore.newCursor();
-            cursor.InputStateMode = Cursor.INPUT_STATE_SYNC_WITH_SCORE;
-            cursor.rewind(Cursor.SELECTION_END);
-            var endTick = cursor.tick;
-            if (endTick == 0) {
-                // If SELECTION_END is the end of the score, cursor.tick is 0 (grrr!)
-                endTick = curScore.lastSegment.tick;
-            }
-
-            cursor.rewind(Cursor.SELECTION_START);
-            log("Selection is from tick " + cursor.tick + " to " + endTick + "\n");
-
-            curScore.startCmd();
-            while (cursor.tick < endTick) {
-                if (cursor.element.name == "Chord") {
-                    log("Chord at " + cursor.tick + "\n");
-                    //dumpObject( cursor.element, true );
-                    log("  stem "    + (cursor.element.stem != null) + "\n");
-                    log("  noStem "  + cursor.element.stem + "\n");
-
+                else if (element && (element.type === Element.CHORD)) {
+                    log("Track " + track + ". Chord at " + cursor.tick + "\n");
+                    //dumpObject( element, true );
+                    log("  stem "   + (element.stem != null) + "\n");
+                    log("  noStem " + (element.noStem != null) + "\n");
                     switch (stem_type) {
                         case "none":
-                            cursor.element.noStem = true;
+                            element.noStem = true;
                             log("  Removed stem\n");
                             break;
                         case "standard":
-                            cursor.element.noStem = false;
+                            element.noStem = false;
                             log("  Added stem\n");
                             break;
                         default:
-                            message("Error", "Invalid stem style: " + stem_type);
+                            // do nothing;
                             break;
                     }
                 }
-                cursor.next();
             }
 
-            curScore.endCmd();
+            cursor.track = 4*curScore.selection.startStaff;
+            if (!cursor.next()) {
+                break;
+            }
         }
+
+        curScore.endCmd();
         write_file();
     }
 
@@ -313,16 +288,23 @@ MuseScore {
         for (var ix=0; ix < curScore.selection.elements.length; ix++) {
             var chord = null;
             var element = curScore.selection.elements[ix];
+            log("Selected element is a " + element.name + "\n");
             if (element.type == Element.CHORD) {
                 chord = element;
             }
             else if (element.type == Element.NOTE) {
                 chord = element.parent;
             }
+            else if (element.type == Element.LYRICS) {
+                chord = element.parent;
+            }
+            else {
+                message("Error", "Can't insert lyric on a " + element.name);
+                // Fall through to update log file
+            }
 
             if (chord && (chord.type == Element.CHORD)) {
                 var track = chord.track;
-
                 if (a_mode == "insert") {
                     // Insert a word or syllable on this chord
                     var nVerses = chord.lyrics.length;
@@ -411,6 +393,13 @@ MuseScore {
             else if (element.type == Element.NOTE) {
                 chord = element.parent;
             }
+            else if (element.type == Element.LYRICS) {
+                chord = element.parent;
+            }
+            else {
+                message("Error", "Can't process verses on a " + element.name);
+                // Fall through to update log file
+            }
 
             if (chord && (chord.type == Element.CHORD)) {
                 var nVerses = chord.lyrics.length;
@@ -418,7 +407,7 @@ MuseScore {
 
                 if (a_mode == "remove") {
                     // Clear out alignment offsets
-                    for (vx = 0; vx < nVerses; vx++) {
+                    for (var vx = 0; vx < nVerses; vx++) {
                         var was = chord.lyrics[vx].offsetX;
                         chord.lyrics[vx].offsetX = 0;
                         log("Moved verse " + (vx+1) + " from " +
@@ -443,7 +432,7 @@ MuseScore {
                     }
 
                     // Align to the widest lyric
-                    for (vx = 0; vx < nVerses; vx++) {
+                    for (var vx = 0; vx < nVerses; vx++) {
                         var delta = (widest - chord.lyrics[vx].bbox.width)/2;
                         chord.lyrics[vx].offsetX = -delta;
                         log("Moved verse " + (vx+1) + " lyric by " +
@@ -452,7 +441,7 @@ MuseScore {
                 }
                 else if (a_mode == "number") {
                     // Insert verse numbers
-                    for (vx = 0; vx < nVerses; vx++) {
+                    for (var vx = 0; vx < nVerses; vx++) {
                         var text = chord.lyrics[vx].text;
                         if ((text[0] < '0') || (text[0] > '9')) {
                             chord.lyrics[vx].text = (chord.lyrics[vx].verse+1) + ". " + text;
@@ -631,7 +620,7 @@ MuseScore {
         anchors.fill: parent
 
         // Changes the color of all buttons (I'm too lazy to shape them)
-        palette.button: "#D0D0D0"
+        palette.button: "#D9DEE4"
         palette.buttonText: "#000000"
 
         GridLayout {
@@ -702,7 +691,6 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
             }
 
             Button {
-                id: insertLyricButton
                 text: qsTranslate("PrefsDialogBase", "Insert word,\nsyllable,\nor {group}")
                 onClicked: {
                     try_it(insertLyric, "insert")
@@ -710,7 +698,6 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
             }
 
             Button {
-                id: nextNoteButton
                 text: qsTranslate("PrefsDialogBase", "\nSkip note\n ")
                 onClicked: {
                     try_it(insertLyric, "skip")
