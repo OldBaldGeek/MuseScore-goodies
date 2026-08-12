@@ -26,7 +26,7 @@ import Muse.UiComponents
 import FileIO
 
 MuseScore {
-    version: "1.1.0"
+    version: "1.2.0"
     title: "Lyrics-Buddy"
     description: "Tools to insert and format lyrics"
     // categoryCode: "composing-arranging-tools"
@@ -87,7 +87,7 @@ MuseScore {
 
     //============================================================================
     // Return pitch integer as a string
-    function pitchName( a_pitch )
+    function pitch_name( a_pitch )
     {
         var notes = [ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" ];
         return notes[ a_pitch % 12 ] + (Math.floor(a_pitch / 12) - 1);
@@ -103,7 +103,7 @@ MuseScore {
             var str = error.message + "\n";
             if (error.qmlErrors) {
                 // Google shows this, but I have yet to see it.
-                // If I run Google's sample invocations, I get the basic error.message
+                // If I run Google's sample invocations, I get just error.message
                 for (var i = 0; i < error.qmlErrors.length; i++) {
                     str += "File: " + error.qmlErrors[i].fileName + "\n";
                     str += "Line: " + error.qmlErrors[i].lineNumber + "\n";
@@ -241,20 +241,95 @@ MuseScore {
     }
 
     //============================================================================
+    // Construct and return a Cursor starting at the current selection.
+    // If cursor can't be made, show an error box and return null.
+    function cursor_for_selection()
+    {
+        var cursor = null;
+        if (curScore.selection.elements.length != 0) {
+            var track = 0;
+            var element = curScore.selection.elements[0];
+            while (element && (element.name != "Segment")) {
+                if (element.track) {
+                    track = element.track;
+                }
+                element = element.parent;
+            }
+
+            if (element) {
+                var cursor = curScore.newCursor();
+                cursor.track = track;
+                cursor.rewindToTick(element.tick);
+            }
+        }
+
+        if (cursor == null) {
+            message("Error", "You must select a note or chord");
+        }
+
+        return cursor;
+    }
+
+    //============================================================================
+    // Advance the cursor to the next chord, if any; else return false
+    function next_chord(a_cursor)
+    {
+        var retval = false;
+        do {
+            retval = a_cursor.next();
+        } while (retval && (a_cursor.element.name != "Chord"));
+
+        return retval;
+    }
+
+    //============================================================================
+    // Back up the cursor to the previous chord, if any; else return false
+    function previous_chord(a_cursor)
+    {
+        var retval = false;
+        do {
+            retval = a_cursor.prev();
+        } while (retval && (a_cursor.element.name != "Chord"));
+
+        return retval;
+    }
+
+    //============================================================================
+    // Update selection to the specified Note or the top Note in the specified Chord
+    function select_note_or_chord(a_element)
+    {
+        if (a_element) {
+            log( "select_note_or_chord of " + a_element.name + "\n" );
+            //smallDump(a_element);
+
+            if (a_element.type == Element.CHORD) {
+                a_element = a_element.notes[a_element.notes.length-1];
+            }
+
+            if (a_element && curScore.selection.select(a_element)) {
+                log( "Selected " + a_element.name + "\n" );
+            }
+            else {
+                log( "Selection of " + a_element.name + " failed\n" );
+            }
+        }
+    }
+
+    //============================================================================
     // Return the next word, syllable, or {group} from the input text.
     // Returns null if there is no more text
-    function getSyllable()
+    function get_syllable()
     {
         var text = lyricText.text;
 
         // Test for bracketed {chant text} followed by space or hyphen
-        // [0] gets matched portion string
+        // [0] gets matched portion of string
         // [1] gets text inside the brackets
         // [2] gets hyphen, space, or empty string
-        var tokens = text.match( /^\s*\{(.+)\}([ -]{0,1})/ );
+        var tokens = text.match( /^\s*\{([^{}]+)\}([ -]{0,1})/ );
         if (!tokens) {
             // Test for word or syllable followed by space or hyphen
-            // [0] gets matched portion string
+            // [0] gets matched portion of string
             // [1] gets text
             // [2] gets hyphen, space, or empty string
             tokens = text.match( /^\s*([^- \n]+)([ -]{0,1})/ );
@@ -270,97 +345,69 @@ MuseScore {
     }
 
     //============================================================================
-    // If a_mode is "insert", insert a syllable or word, then advance selection
-    // to the next note. Else advance selection without inserting.
-    function insertLyric( a_mode )
+    // If a_mode is "insert",
+    //   insert a syllable or word, then advance selection to the next note.
+    // Else advance selection without inserting.
+    function insert_lyric( a_mode )
     {
-        if (curScore.selection.elements.length == 0)
-        {
-            message("Error", "You must select a location at which to add a lyric");
+        time_stamp("Inserting Lyric " + a_mode);
+        var cursor = cursor_for_selection();
+        if (!cursor)
             return;
-        }
-
-        time_stamp("Processing Lyric " + a_mode);
-
-        var verse = Number(verseNumber.value) - 1;
 
         curScore.startCmd();
-        for (var ix=0; ix < curScore.selection.elements.length; ix++) {
-            var chord = null;
-            var element = curScore.selection.elements[ix];
-            log("Selected element is a " + element.name + "\n");
-            if (element.type == Element.CHORD) {
-                chord = element;
-            }
-            else if (element.type == Element.NOTE) {
-                chord = element.parent;
-            }
-            else if (element.type == Element.LYRICS) {
-                chord = element.parent;
-            }
-            else {
-                message("Error", "Can't insert lyric on a " + element.name);
-                // Fall through to update log file
-            }
+        var verse = Number(verseNumber.value) - 1;
+        var chord = cursor.element;
+        if (chord && (chord.type == Element.CHORD)) {
+            //log("Working on ");
+            //smallDump(chord);
 
-            if (chord && (chord.type == Element.CHORD)) {
-                var track = chord.track;
-                if (a_mode == "insert") {
-                    // Insert a word or syllable on this chord
-                    var nVerses = chord.lyrics.length;
-                    for (var vx = 0; vx < nVerses; vx++) {
-                        if (chord.lyrics[vx].verse == verse) {
-                            var str = 'This note already has lyric "' +
-                                       chord.lyrics[vx].text + '" for verse ' +
-                                       (verse+1);
-                            message("Error", str);
-                            return;
-                        }
-                    }
-
-                    var tokens = getSyllable();
-                    if (tokens) {
-                        var lyrics = newElement(Element.LYRICS);
-                        lyrics.text = tokens[1];
-                        var str = 'Inserted "' + tokens[1] + '"';
-                        lyrics.autoplace = true;
-                        lyrics.subType = verse;
-                        lyrics.verse = verse;
-                        if (tokens[2] == '-') {
-                            lyrics.syllabic = 1; // Syllabic.BEGIN;
-                            str += ", hyphenated";
-                        }
-
-                        var leftOverage = lyrics.bbox.width/2 - Number(lyricLeftMax.text);
-                        if (leftOverage > 0) {
-                            // Centered lyric would extend too far left
-                            lyrics.offsetX = leftOverage;
-                            str += ", shifted right by " + leftOverage.toFixed(2);
-                        }
-
-                        chord.add(lyrics);
-                        // dumpObject( chord, true );
-                        log(str + "\n");
+            var track = chord.track;
+            if (a_mode == "insert") {
+                // Insert a word or syllable on this chord
+                for (var vx = 0; vx < chord.lyrics.length; vx++) {
+                    if (chord.lyrics[vx].verse == verse) {
+                        var str = 'This note already has lyric "' +
+                                   chord.lyrics[vx].text + '" for verse ' +
+                                   (verse+1);
+                        message("Error", str);
+                        curScore.endCmd();
+                        write_file();
+                        return;
                     }
                 }
 
-                // Look for the next segment with a Chord in our voice/track
-                var segment = chord.parent;
-                while (segment.next) {
-                    segment = segment.next;
-                    chord = segment.elementAt(track);
-                    if (chord && (chord.type == Element.CHORD)) {
-                        log("Chord has " + chord.notes.length + " notes\n");
-                        var note = chord.notes[0];
-                        if (note) {
-                            var ok = curScore.selection.select(note);
-                            log( "Next note " + pitchName(note.pitch) + " " + ok );
-                            // smallDump( chord, true );
-                        }
-                        break;
+                var tokens = get_syllable();
+                if (tokens) {
+                    var lyrics = newElement(Element.LYRICS);
+                    lyrics.text = tokens[1];
+                    var str = 'Inserted "' + tokens[1] + '"';
+                    lyrics.autoplace = true;
+                    lyrics.subType = verse;
+                    lyrics.verse = verse;
+                    if (tokens[2] == '-') {
+                        lyrics.syllabic = 1; // Syllabic.BEGIN;
+                        str += ", hyphenated";
                     }
+
+                    var leftOverage = lyrics.bbox.width/2 - Number(lyricLeftMax.text);
+                    if (leftOverage > 0) {
+                        // Centered lyric would extend too far left
+                        lyrics.offsetX = leftOverage;
+                        str += ", shifted right by " + leftOverage.toFixed(2);
+                    }
+
+                    chord.add(lyrics);
+                    // dumpObject(chord, true);
+                    log(str + "\n");
                 }
-                break;
+            }
+
+            // Advance to next Chord in our voice/track
+            if (next_chord(cursor)) {
+                //log("Move to ");
+                //smallDump(cursor.element);
+                select_note_or_chord(cursor.element);
             }
         }
 
@@ -369,11 +416,93 @@ MuseScore {
     }
 
     //============================================================================
+    // Back up one chord.
+    // If it has a lyric in the current verse, remove it and prepend to the
+    // text buffer.
+    // Essentially an undo for lyric insertion
+    function back_one_chord()
+    {
+        time_stamp("Back one chord");
+        var cursor = cursor_for_selection();
+        if (!cursor)
+            return;
+
+        curScore.startCmd();
+        var verse = Number(verseNumber.value) - 1;
+
+        // Move to the previous Chord in our voice/track
+        if (previous_chord(cursor)) {
+            var chord = cursor.element;
+            //log("Move to ");
+            //smallDump(chord);
+            select_note_or_chord(chord);
+
+            var lyric = "";
+            for (var vx = 0; vx < chord.lyrics.length; vx++) {
+                if (chord.lyrics[vx].verse == verse) {
+                    lyric = chord.lyrics[vx].text;
+                    // MuseScore converts spaces within a Lyric to
+                    // 0xA0 (non-breaking-space) when inserted.
+                    if (/\s/.test(lyric)) {
+                        log("Lyric contains whitespace\n");
+                        lyric = "{" + lyric + "}";
+                    }
+
+                    var syl = chord.lyrics[vx].syllabic;
+                    log("Lyric syllabic=" + syl + "\n");
+                    if ((syl == 1) || (syl == 3)) { // Syllabic.BEGIN or .MIDDLE;
+                        log("Lyric is syllabic.BEGIN or MIDDLE\n");
+                        lyric += "-";
+                    }
+
+                    log('This note has lyric "' + lyric +
+                        '" for verse ' + (verse+1) + '\n');
+
+                    // Remove the lyric from the chord
+                    chord.remove(chord.lyrics[vx]);
+
+                    if ((syl == 2) || (syl == 3)) { // Syllabic.END or .MIDDLE;
+                        // chord.remove turns off the syllabic in the
+                        // previous chord. Go back and set it again.
+                        log("Lyric is syllabic.END or MIDDLE. Restoring previous chord\n");
+
+                        if (previous_chord(cursor)) {
+                            var chord = cursor.element;
+                            for (var vx = 0; vx < chord.lyrics.length; vx++) {
+                                if (chord.lyrics[vx].verse == verse) {
+                                    log('Patching lyric "' + chord.lyrics[vx].text +
+                                        '" syl=' + chord.lyrics[vx].syllabic + '\n');
+                                    // Just setting syllabic in the existing Lyric
+                                    // doesn't work, but REPLACING the Lyric it does
+                                    var lyr = chord.lyrics[vx].clone();
+                                    chord.remove(chord.lyrics[vx]);
+                                    chord.add(lyr);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+
+            if (lyric != "") {
+                // Prepend the lyric to the to-be-inserted text
+                lyricText.text = lyric + ' ' + lyricText.text;
+            }
+        }
+
+        curScore.endCmd();
+        write_file();
+        return;
+    }
+
+    //============================================================================
     // Align the lyrics of all verses on this note based on a_mode:
     // "remove" remove horizontal offsets
     // "align"  align the left edges of lyrics
     // "number" insert verse numbers and align left edges
-    function alignVerses( a_mode )
+    function align_verses( a_mode )
     {
         if (curScore.selection.elements.length == 0)
         {
@@ -584,7 +713,7 @@ MuseScore {
                 log("(" + a_value.numerator + "/" + a_value.denominator + ")");
             }
             else if (a_label == "pitch") {
-                log(pitchName(a_value));
+                log(pitch_name(a_value));
             }
             else if (a_label == "tick") {
                 log( a_value + " (" + (a_value/480) + ")" );
@@ -642,7 +771,8 @@ MuseScore {
 'Type or paste lyrics here, using multiple lines if desired, then insert them starting\n\
 at the selected note. Hy-phen-at-ed words are inserted syllable by syllable.\n\
 Words/syllables are centered under the note, but won\'t extend more than "max left."\n\
-{text in brackets} is inserted on a single note, as when notating chant.'
+{text in brackets} is inserted on a single note, as when notating chant.\n\
+"Back" moves to the previous note and removes its lyric.'
                 text: ""
             }
 
@@ -693,14 +823,26 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
             Button {
                 text: qsTranslate("PrefsDialogBase", "Insert word,\nsyllable,\nor {group}")
                 onClicked: {
-                    try_it(insertLyric, "insert")
+                    try_it(insert_lyric, "insert")
                 }
             }
 
-            Button {
-                text: qsTranslate("PrefsDialogBase", "\nSkip note\n ")
-                onClicked: {
-                    try_it(insertLyric, "skip")
+            ColumnLayout {
+                spacing: 5
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Button {
+                    text: qsTranslate("PrefsDialogBase", "Skip note")
+                    onClicked: {
+                        try_it(insert_lyric, "skip")
+                    }
+                }
+
+                Button {
+                    text: qsTranslate("PrefsDialogBase", "Back")
+                    onClicked: {
+                        try_it(back_one_chord)
+                    }
                 }
             }
 
@@ -722,7 +864,7 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
                         Layout.preferredWidth: 125
                         text: qsTranslate("PrefsDialogBase", "Align\nverses")
                         onClicked: {
-                            try_it(alignVerses, "align")
+                            try_it(align_verses, "align")
                         }
                     }
 
@@ -732,7 +874,7 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
                         Layout.preferredWidth: 125
                         text: qsTranslate("PrefsDialogBase", "Number\nverses")
                         onClicked: {
-                            try_it(alignVerses, "number")
+                            try_it(align_verses, "number")
                         }
                     }
 
@@ -742,7 +884,7 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
                         Layout.preferredWidth: 125
                         text: qsTranslate("PrefsDialogBase", "Remove\noffsets")
                         onClicked: {
-                            try_it(alignVerses, "remove")
+                            try_it(align_verses, "remove")
                         }
                     }
                 }

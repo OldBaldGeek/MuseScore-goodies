@@ -2,6 +2,16 @@
 
 This is a [MuseScore](https://handbook.musescore.org/) [plugin](https://musescore.org/en/plugins) which assists in the insertion and formatting of lyrics.
 
+MuseScore's built-in lyrics entry is quite usable, letting you type or paste lyrics one word or syllable at a time. If the clipboard contains hyphenated words, MuseScore will automatically insert the hyphen as you insert each syllable.
+
+Lyrics-buddy adds a few conveniences to entry and formatting of lyrics:
+
+- Allows you to see the lyrics waiting to be inserted (rather than the invisible clipboard)
+- Allows you to modify the lyrics waiting to be pasted after you mess up inertion
+- MuseScore defaults to centering each word or syllable under its note. This is usually fine, but it can sometimes cause the text to appear too far to the left of the note. Lyrics-buddy lets you specify a "left max" value to limit how far to the left of a note its lyrics may extend.
+- When notating chant, it is common to have multiple words on the same note. You can do this in MuseScore by typing Ctrl-Space instead of Space between words, but this can make typing cumbersome. Lyrics-buddy will insert text wrapped in curly braces {} onto a single note.
+- Lets you align and number the text of multiple verses
+
 ## Installation
 
 Current and previous versions are available for download from [https://github.com/OldBaldGeek/MuseScore-goodies/tree/main/lyrics-buddy](https://github.com/OldBaldGeek/MuseScore-goodies/tree/main/lyrics-buddy).
@@ -17,27 +27,21 @@ To update to a new version, simply replace the `lyrics-buddy` folder with the ne
 
 ## Operation
 
-MuseScore's built-in lyrics entry is quite usable, letting you type or paste lyrics one word or syllable at a time. If the clipboard contains hyphenated words, MuseScore will automatically insert the hyphen as you insert each syllable.
-
-Lyrics-buddy adds a few conveniences to entry and formatting of lyrics:
-
-- Allows you to see the lyrics waiting to be pasted (rather than the invisible clipboard)
-- MuseScore defaults to centering each word or syllable under its note. This is usually fine, but it can sometimes cause the text to appear too far to the left of the note. Lyrics-buddy lets you specify a "left max" value to limit how far to the left of a note its lyrics may extend.
-- When notating chant, it is common to have multiple words on the same note. You can do this in MuseScore by typing Ctrl-Space instead of Space between words, but this can make typing cumbersome. Lyrics-buddy will insert text wrapped in curly braces {} onto a single note.
-
 The Lyrics-buddy dialog has several sections:
 
 ### Insertion of Lyrics
 
-- **Type or paste Lyrics here...** is a multi-line text box into which you can type or paste lyrics. I like to use https://juiciobrennan.com/hyphenator/ to hyphenate a verse of lyrics, then copy the results to Lyrics-buddy. The Hyphenator isn't perfect but does a pretty good job.
+- **Type or paste Lyrics here...** is a multi-line text box into which you can type or paste lyrics. I like to use the "Hyphenator" at https://juiciobrennan.com/hyphenator/ to hyphenate a verse of lyrics, then copy the results to Lyrics-buddy. The Hyphenator isn't perfect but does a pretty good job.
 
 - **Insert word, syllable, or \{group\}**: Button that adds the next lyric item to the currently selected note. The selection is then moved to the next note, and the lyric item just inserted is removed from the source text box. If a lyric already exists for the specified verse of the selected note, an error is shown and no lyric is inserted.
 
-- **Skip note**: Button that advances the selection to the next note without inserting a lyric item.
+- **Skip note**: Button that advances the selection to the next note without inserting a lyric item. Used to skip over tied notes and melissmas.
+
+- **Back**: Button that moves the selection back to the previous note, removes its lyric, and pre-pends the lyric to the source text box. Useful as an "undo" when you insert into what should be a tied note or melissma.
 
 - **Lyric max left**: numeric edit field that specifies the maximum distance to the left of a note that a lyric will be allowed to extend. Lyrics that would extend further to the left are shifted to the right. The default value is 4, which is roughly 4 characters. If you don't like the feature, set it to 999.
 
-- **Verse**: specifies the verse to which lyrics should be added.
+- **Verse**: specifies the verse to which lyrics should be added or from which they should be removed.
 
 ### Align the lyrics of the selected note
 
@@ -52,7 +56,7 @@ If your score has multiple verses, this section can help with formatting them. A
 ### Format the selected measures (as for chant)
 These controls don't affect lyrics. They are tucked in a corner here because I engrave a fair amount of non-metrical chant and they let me avoid needing to open an additional plug-in. (Chant is also why Lyrics-buddy has {} groups for lyrics text.)
 
-Unlike the other sections of the dialog that act on one note at a time, the controls here act on a selection, typically a range of measures.
+Unlike the other sections of the dialog that act on one note at a time, the controls here act on a selection, typically a range of measures or an entire score.
 
 - **barlines:...** drop-list that specifies whether barlines should be affected by Format, and if so what type of barline is to be used: normal, tick1, or tick2.
 
