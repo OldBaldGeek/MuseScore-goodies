@@ -26,7 +26,7 @@ import Muse.UiComponents
 import FileIO
 
 MuseScore {
-    version: "1.2.0"
+    version: "1.3.0"
     title: "Lyrics-Buddy"
     description: "Tools to insert and format lyrics"
     // categoryCode: "composing-arranging-tools"
@@ -307,10 +307,10 @@ MuseScore {
             }
 
             if (a_element && curScore.selection.select(a_element)) {
-                log( "Selected " + a_element.name + "\n" );
+                log( "  Selected " + a_element.name + "\n" );
             }
             else {
-                log( "Selection of " + a_element.name + " failed\n" );
+                log( "  Selection of " + a_element.name + " failed\n" );
             }
         }
     }
@@ -324,22 +324,31 @@ MuseScore {
 
         // Test for bracketed {chant text} followed by space or hyphen
         // [0] gets matched portion of string
-        // [1] gets text inside the brackets
-        // [2] gets hyphen, space, or empty string
-        var tokens = text.match( /^\s*\{([^{}]+)\}([ -]{0,1})/ );
+        // [1] gets hyphen or empty string
+        // [2] gets text inside the brackets
+        // [3] gets hyphen, space, or empty string
+        var tokens = text.match( /^\s*(-{0,1})\{([^{}]+)\}([ -]{0,1})/ );
         if (!tokens) {
             // Test for word or syllable followed by space or hyphen
             // [0] gets matched portion of string
-            // [1] gets text
-            // [2] gets hyphen, space, or empty string
-            tokens = text.match( /^\s*([^- \n]+)([ -]{0,1})/ );
+            // [1] gets hyphen or empty string
+            // [2] gets text
+            // [3] gets hyphen, space, or empty string
+            tokens = text.match( /^\s*(-{0,1})([^- \n]+)([ -]{0,1})/ );
         }
 
         if (tokens) {
             log("[0]='" + tokens[0] + "'\n");
             log("[1]='" + tokens[1] + "'\n");
             log("[2]='" + tokens[2] + "'\n");
-            lyricText.text = text.slice(tokens[0].length).trim();
+            log("[3]='" + tokens[3] + "'\n");
+            if (tokens[3] == "-") {
+                // leave the final hyphen
+                lyricText.text = text.slice(tokens[0].length-1).trim();
+            }
+            else {
+                lyricText.text = text.slice(tokens[0].length).trim();
+            }
         }
         return tokens;
     }
@@ -377,18 +386,28 @@ MuseScore {
                     }
                 }
 
+                // [0] gets matched portion of string
+                // [1] gets hyphen before the text, or empty string
+                // [2] gets text
+                // [3] gets hyphen, space, or empty string after the text
                 var tokens = get_syllable();
                 if (tokens) {
                     var lyrics = newElement(Element.LYRICS);
-                    lyrics.text = tokens[1];
-                    var str = 'Inserted "' + tokens[1] + '"';
+                    lyrics.text = tokens[2];
+                    var str = 'Inserted "' + tokens[2] + '"';
                     lyrics.autoplace = true;
                     lyrics.subType = verse;
                     lyrics.verse = verse;
-                    if (tokens[2] == '-') {
-                        lyrics.syllabic = 1; // Syllabic.BEGIN;
-                        str += ", hyphenated";
+
+                    var syl = 0;
+                    if (tokens[3] == '-') {
+                        syl += 1; // Syllabic.BEGIN;
                     }
+                    if (tokens[1] == '-') {
+                        syl += 2; // makes Syllabic.END or Syllabic.MIDDLE
+                    }
+                    lyrics.syllabic = syl;
+                    str += ", " + syl;
 
                     var leftOverage = lyrics.bbox.width/2 - Number(lyricLeftMax.text);
                     if (leftOverage > 0) {
@@ -454,6 +473,9 @@ MuseScore {
                         log("Lyric is syllabic.BEGIN or MIDDLE\n");
                         lyric += "-";
                     }
+                    else {
+                        lyric += " ";
+                    }
 
                     log('This note has lyric "' + lyric +
                         '" for verse ' + (verse+1) + '\n');
@@ -462,33 +484,34 @@ MuseScore {
                     chord.remove(chord.lyrics[vx]);
 
                     if ((syl == 2) || (syl == 3)) { // Syllabic.END or .MIDDLE;
-                        // chord.remove turns off the syllabic in the
+                        // We find that chord.remove changes the syllabic of the
                         // previous chord. Go back and set it again.
                         log("Lyric is syllabic.END or MIDDLE. Restoring previous chord\n");
 
-                        if (previous_chord(cursor)) {
+                        var found = false;
+                        while (!found && previous_chord(cursor)) {
                             var chord = cursor.element;
                             for (var vx = 0; vx < chord.lyrics.length; vx++) {
                                 if (chord.lyrics[vx].verse == verse) {
                                     log('Patching lyric "' + chord.lyrics[vx].text +
                                         '" syl=' + chord.lyrics[vx].syllabic + '\n');
                                     // Just setting syllabic in the existing Lyric
-                                    // doesn't work, but REPLACING the Lyric it does
+                                    // doesn't work, but REPLACING the Lyric does
                                     var lyr = chord.lyrics[vx].clone();
                                     chord.remove(chord.lyrics[vx]);
                                     chord.add(lyr);
+                                    found = true;
                                     break;
                                 }
                             }
                         }
                     }
-                    break;
                 }
             }
 
             if (lyric != "") {
                 // Prepend the lyric to the to-be-inserted text
-                lyricText.text = lyric + ' ' + lyricText.text;
+                lyricText.text = lyric + lyricText.text;
             }
         }
 
