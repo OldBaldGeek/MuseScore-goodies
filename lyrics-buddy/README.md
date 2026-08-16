@@ -34,7 +34,7 @@ The Lyrics-buddy dialog has several sections:
 
 - **Type or paste Lyrics here...** is a multi-line text box into which you can type or paste lyrics. I like to use the "Hyphenator" at https://juiciobrennan.com/hyphenator/ to hyphenate a verse of lyrics, then copy the results to Lyrics-buddy. The Hyphenator isn't perfect but does a pretty good job.
 
-- **Insert word, syllable, or \{group\}**: Button that adds the next lyric item to the currently selected note. The selection is then moved to the next note, and the lyric item just inserted is removed from the source text box. If a lyric already exists for the specified verse of the selected note, an error is shown and no lyric is inserted.
+- **Insert word, syllable, or \{group\}**: Button that adds the next lyric item to the currently selected note. The selection is then moved to the next note, and the lyric item just inserted is removed from the source text box. If a lyric already exists for the specified verse of the selected note, an error is shown and no lyric is inserted.<br>
 ![(Before insert)](./pre-insertion.png)  ![(After insert)](./post-insertion.png)
 
 - **Skip note**: Button that advances the selection to the next note without inserting a lyric item. Used to skip over tied notes and melissmas.
@@ -51,7 +51,7 @@ If your score has multiple verses, this section can help with formatting them. A
 
 - **Align verse**: button that aligns the left edge of all verses on the selected note, taking into account "Lyric max left". This will most often be used on the first note of a line, following common publishing practice. Note that even if you have only a single verse this button may be used to apply "Lyric max left" to an existing lyric on a note.
 
-- **Number verses**: button that numbers the verses on the selected note and aligns the numbers. You will almost always do this on the first line of music. But for songs with more than four verses your singers will appreciate it if you add numbers to the first word in each line, to make it easier to find verse 5 of 9 across a line break.
+- **Number verses**: button that numbers the verses on the selected note and aligns the numbers. You will almost always do this on the first line of music. But for songs with more than four verses your singers will appreciate it if you add numbers to the first word in each line, to make it easier to find verse 5 of 9 across a line break.<br>
 ![(before numbering)](./no-numbers.png)    ![(after numbering)](./numbers.png)
 
 - **Remove offsets**: Lyrics-buddy does its alignments by adjusting the Lyric's offsetX property. Should these get messed up, perhaps by an earlier manual adjustment of the lyric in one verse, this button sets offsetX of all Lyrics attached to the selected note to 0.
