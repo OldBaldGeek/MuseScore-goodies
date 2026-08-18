@@ -26,7 +26,7 @@ import Muse.UiComponents
 import FileIO
 
 MuseScore {
-    version: "1.3.0"
+    version: "1.4.0"
     title: "Lyrics-Buddy"
     description: "Tools to insert and format lyrics"
     // categoryCode: "composing-arranging-tools"
@@ -68,6 +68,11 @@ MuseScore {
     function write_file()
     {
         logFile.write(m_logString);
+    }
+
+    function log_file_path()
+    {
+        return logFile.source;
     }
 
     function up_nest(a_caption)
@@ -145,6 +150,7 @@ MuseScore {
             return;
         }
 
+        var lyric_voice = lyricVoice.model[lyricVoice.currentIndex].type;
         var barline_type = barlineType.model[barlineType.currentIndex].type;
         var stem_type = stemType.model[stemType.currentIndex].type;
         time_stamp("Formatting barlines:" + barline_type +" stems:" + stem_type)
@@ -165,6 +171,9 @@ MuseScore {
         cursor.filter = -1; // SegmentType.ALL
         log("Selection from tick " + cursor.tick + " to " + endTick + "\n");
 
+        var moved_lyric = 0;
+        var failed_move = 0;
+
         while (cursor.tick < endTick) {
             for (var track = 4*curScore.selection.startStaff;
                  track < 4*curScore.selection.endStaff;
@@ -172,8 +181,14 @@ MuseScore {
             {
                 cursor.track = track;
                 var element = cursor.element;
-                if (element && (element.type === Element.BAR_LINE)) {
-                    log("Track " + track + ". Bar line at " + cursor.tick + "\n");
+                if (element == null)
+                    continue;
+
+                if ((element.type === Element.BAR_LINE) &&
+                    (barline_type != "unchanged")) {
+                    log("Measure " + (cursor.measure.no + 1) +
+                        ", Track " + track +
+                        ". Bar line at " + cursor.tick + "\n");
                     showGoodStuff("barlineType", element.barlineType, "  ");
                     showGoodStuff("barlineSpan", element.barlineSpan, "  ");
                     showGoodStuff("barlineSpanFrom", element.barlineSpanFrom, "  ");
@@ -209,23 +224,58 @@ MuseScore {
                             break;
                     }
                 }
-                else if (element && (element.type === Element.CHORD)) {
-                    log("Track " + track + ". Chord at " + cursor.tick + "\n");
-                    //dumpObject( element, true );
-                    log("  stem "   + (element.stem != null) + "\n");
-                    log("  noStem " + (element.noStem != null) + "\n");
-                    switch (stem_type) {
-                        case "none":
-                            element.noStem = true;
-                            log("  Removed stem\n");
-                            break;
-                        case "standard":
-                            element.noStem = false;
-                            log("  Added stem\n");
-                            break;
-                        default:
-                            // do nothing;
-                            break;
+                else if (element.type === Element.CHORD) {
+                    if (stem_type != "unchanged") {
+                        log("Measure " + (cursor.measure.no + 1) +
+                            ", Track " + track +
+                            ". Chord at " + cursor.tick + "\n");
+                        //log("  stem "   + (element.stem != null) + "\n");
+                        //log("  noStem " + (element.noStem != null) + "\n");
+                        switch (stem_type) {
+                            case "none":
+                                element.noStem = true;
+                                log("  Removed stem\n");
+                                break;
+                            case "standard":
+                                element.noStem = false;
+                                log("  Added stem\n");
+                                break;
+                            default:
+                                // do nothing;
+                                break;
+                        }
+                    }
+
+                    if (lyric_voice != "unchanged") {
+                        log("Measure " + (cursor.measure.no + 1) +
+                            ", Track " + track +
+                            ". Chord at " + cursor.tick + "\n");
+                        var voice = track % 4;
+                        var desired_voice = parseInt(lyric_voice);
+                        if (voice != desired_voice) {
+                            for (var vx = element.lyrics.length - 1; vx >= 0; vx--) {
+                                // Remove the lyric from this voice and put
+                                // a copy in the desired voice
+                                var to_track = 4*(track/4) + desired_voice;
+                                var el = cursor.segment.elementAt(to_track);
+                                if (el && (el.type === Element.CHORD)) {
+                                    var lyric_copy = element.lyrics[vx].clone();
+                                    log('Moving lyric "' + lyric_copy.text +
+                                        '" from voice ' + (voice+1) +
+                                        ' to voice ' + (desired_voice+1) + '\n');
+                                    element.remove(element.lyrics[vx]);
+                                    lyric_copy.voice = desired_voice;
+                                    el.add(lyric_copy);
+                                    moved_lyric += 1;
+                                }
+                                else {
+                                    log('ERROR: voice ' + (desired_voice+1) +
+                                        ' has no note to accept lyric "' +
+                                        element.lyrics[vx].text + '"\n');
+                                    failed_move += 1;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -237,7 +287,15 @@ MuseScore {
         }
 
         curScore.endCmd();
+        var str = "Moved " + moved_lyric + " lyrics to another voice\n" +
+                  "Failed to move " + failed_move + " lyrics.\n";
+        log(str);
         write_file();
+
+        if (moved_lyric + failed_move > 0) {
+            str += "See " + log_file_path() + " for details";
+           message("Warning", str);
+        }
     }
 
     //============================================================================
@@ -874,7 +932,7 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
             GroupBox {
                 title: "Align the lyrics of the selected note"
                 Layout.columnSpan: 2
-                Layout.fillWidth: true
+                Layout.fillWidth: false
 
                 RowLayout {
                     spacing: 10
@@ -884,7 +942,7 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
                     Button {
                         id: alignButton
                         //Layout.fillWidth: true
-                        Layout.preferredWidth: 125
+                        Layout.preferredWidth: 80
                         text: qsTranslate("PrefsDialogBase", "Align\nverses")
                         onClicked: {
                             try_it(align_verses, "align")
@@ -894,7 +952,7 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
                     Button {
                         id: numberAndAlignButton
                         //Layout.fillWidth: true
-                        Layout.preferredWidth: 125
+                        Layout.preferredWidth: 80
                         text: qsTranslate("PrefsDialogBase", "Number\nverses")
                         onClicked: {
                             try_it(align_verses, "number")
@@ -904,7 +962,7 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
                     Button {
                         id: removeAlignmentButton
                         //Layout.fillWidth: true
-                        Layout.preferredWidth: 125
+                        Layout.preferredWidth: 80
                         text: qsTranslate("PrefsDialogBase", "Remove\noffsets")
                         onClicked: {
                             try_it(align_verses, "remove")
@@ -926,6 +984,22 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
                     Layout.fillHeight: false
 
                     StyledDropdown {
+                        id: lyricVoice;
+                        Layout.preferredWidth: 138
+                        model: [
+                            { 'text': "lyrics: unchanged", 'type': "unchanged" },
+                            { 'text': "lyrics: on voice1", 'type': "0" },
+                            { 'text': "lyrics: on voice2", 'type': "1" },
+                            { 'text': "lyrics: on voice3", 'type': "2" },
+                            { 'text': "lyrics: on voice4", 'type': "3" }
+                        ]
+                        currentIndex: 0
+                        onActivated: function(index, value) {
+                            currentIndex = index
+                        }
+                    }
+
+                    StyledDropdown {
                         id: barlineType;
                         Layout.preferredWidth: 150
                         model: [
@@ -942,7 +1016,7 @@ Words/syllables are centered under the note, but won\'t extend more than "max le
 
                     StyledDropdown {
                         id: stemType;
-                        Layout.preferredWidth: 140
+                        Layout.preferredWidth: 138
                         model: [
                             { 'text': "stems: unchanged", 'type': "unchanged" },
                             { 'text': "stems: standard",  'type': "standard" },
